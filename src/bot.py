@@ -15,7 +15,7 @@ from config import (
     PAYMENT_USDT_ADDRESS, PAYMENT_USDT_NETWORK, HISTORY_LIMIT,
 )
 import db
-import media as media_mod
+import media_handler as media_mod
 import r2
 
 logger = logging.getLogger(__name__)
@@ -230,7 +230,11 @@ def register(dp: Dispatcher, bot: Bot) -> None:
         logger.info("business_msg from %s (%s): %.80s", user_name, user_id, user_content)
 
         if conn_id not in conversations:
-            conversations[conn_id] = await db.load_history(conn_id, limit=HISTORY_LIMIT // 2)
+            try:
+                conversations[conn_id] = await db.load_history(conn_id, limit=HISTORY_LIMIT // 2)
+            except Exception as exc:
+                logger.error("load_history failed: %s", exc)
+                conversations[conn_id] = []
 
         conversations[conn_id].append({"role": "user", "content": user_content})
         if len(conversations[conn_id]) > HISTORY_LIMIT:

@@ -1,19 +1,12 @@
-app = "tgbot"
-primary_region = "waw"  # Warsaw — close to Ukraine
+app = "tg-business-bot"
+primary_region = "waw"
 
 [build]
 
 [env]
   PYTHONUNBUFFERED = "1"
 
-[[services]]
-  internal_port = 8080
-  protocol = "tcp"
-  [services.concurrency]
-    hard_limit = 10
-    soft_limit = 5
-
 [[vm]]
-  memory = "256mb"
+  memory = "1gb"
   cpu_kind = "shared"
   cpus = 1

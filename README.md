@@ -1,48 +1,36 @@
-# tgbot — Telegram Business Bot
+# tg-business-bot
 
-Telegram business-bot with AI auto-replies, Cloudflare AI Gateway, D1 logging, and media analysis.
+Telegram business-bot з автовідповідями на AI, логами в Cloudflare D1, медіа в R2.
 
 ## Features
-- Auto-replies in business chats via Groq → NVIDIA fallback
-- Cloudflare AI Gateway proxies all AI requests (keys stored in BYOK)
-- Conversations logged to Cloudflare D1
-- Media support: photos, voice, video notes, videos (frame + speech)
-- `/on` `/off` `/status` commands for the owner
+- Auto-replies via Groq → NVIDIA fallback
+- Photo / video / voice / sticker / GIF / video note analysis
+- Cloudflare D1 conversation logs
+- Forwarded messages saved to D1 + media uploaded to R2
+- `/on` `/off` `/status` `/muted` `/mute` `/unmute`
+- 🔇 Mute button in every notification
+- Missed call → auto-reply
 
 ## Setup
 
-### 1. Copy env
 ```bash
 cp .env.example .env
 # fill in all values
-```
 
-### 2. Create D1 table
-```bash
-curl -X POST "https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/d1/database/{DB_ID}/query" \
-  -H "Authorization: Bearer {D1_API_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{"sql": "CREATE TABLE IF NOT EXISTS conversations (id INTEGER PRIMARY KEY AUTOINCREMENT, conn_id TEXT NOT NULL, user_id INTEGER NOT NULL, user_name TEXT NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL, ts TEXT NOT NULL);"}'
-```
-
-### 3. Run locally
-```bash
 python -m venv venv
-venv\Scripts\activate      # Windows
+venv\Scripts\activate
 pip install -r requirements.txt
 python src/main.py
 ```
 
-### 4. Deploy to Fly.io
+## Deploy (Fly.io)
+
 ```bash
-fly launch --name tgbot --no-deploy
+fly launch --name tg-business-bot --no-deploy
 fly secrets import < .env
 fly deploy
 ```
 
-## Commands
-| Command | Description |
-|---------|-------------|
-| `/on`   | Enable auto-replies |
-| `/off`  | Disable auto-replies |
-| `/status` | Show current state |
+## License
+
+GPL-3.0 — see [LICENSE](LICENSE)

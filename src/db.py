@@ -36,7 +36,7 @@ _INIT_SQL = [
 
 async def _query(sql: str, params: list | None = None) -> list[dict] | None:
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=20) as client:
             r = await client.post(_BASE, headers=_HEADERS, json={"sql": sql, "params": params or []})
             r.raise_for_status()
             data = r.json()

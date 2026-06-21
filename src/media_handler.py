@@ -1,8 +1,8 @@
-"""Media analysis: photos, stickers, GIFs, voice, video notes, videos."""
+import asyncio
+import base64
 import logging
 import os
 import shutil
-import subprocess
 import tempfile
 from typing import Optional
 
@@ -24,22 +24,32 @@ def _unlink(*paths: str) -> None:
             pass
 
 
-def _ffmpeg(args: list[str]) -> bool:
+async def _ffmpeg(args: list[str]) -> bool:
     if not shutil.which("ffmpeg"):
+        logger.error("ffmpeg not found")
         return False
     try:
-        r = subprocess.run(["ffmpeg", "-y"] + args, capture_output=True, timeout=60)
-        return r.returncode == 0
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-y", *args,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+        if proc.returncode != 0:
+            logger.warning("ffmpeg failed: %s", stderr.decode()[:200] if stderr else "no stderr")
+        return proc.returncode == 0
+    except asyncio.TimeoutError:
+        logger.error("ffmpeg timeout")
+        return False
+    except Exception as exc:
+        logger.error("ffmpeg error: %s", exc)
         return False
 
 
 async def _vision(image_path: str, prompt: str) -> str:
-    """Groq vision with NVIDIA fallback."""
     try:
         return await groq_vision(image_path, prompt)
     except Exception as exc:
-        import base64
         logger.warning("Groq vision failed (%s), trying NVIDIA", exc)
         ext = image_path.rsplit(".", 1)[-1].lower()
         mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}.get(ext, "image/jpeg")
@@ -52,29 +62,22 @@ async def _vision(image_path: str, prompt: str) -> str:
         return await nvidia_chat(messages, model="microsoft/phi-3.5-vision-instruct")
 
 
-async def _extract_frames(video: str, count: int = 3) -> list[str]:
-    """Extract evenly spaced frames from video."""
-    # Get duration first
-    try:
-        r = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", video],
-            capture_output=True, timeout=10
-        )
-        import json
-        duration = float(json.loads(r.stdout).get("format", {}).get("duration", 5))
-    except Exception:
-        duration = 5.0
-
+async def _extract_frames(video: str) -> list[str]:
     frames = []
-    for i in range(count):
-        seek = duration * (i + 1) / (count + 1)
-        path = video + f"_frame{i}.jpg"
-        if _ffmpeg(["-ss", str(seek), "-i", video, "-vframes", "1", "-q:v", "2", path]):
+    for i, offset in enumerate(["00:00:01", "00:00:03"]):
+        path = f"{video}_frame{i}.jpg"
+        if await _ffmpeg(["-ss", offset, "-i", video, "-vframes", "1", "-q:v", "2", path]):
+            frames.append(path)
+    if not frames:
+        path = f"{video}_frame0.jpg"
+        if await _ffmpeg(["-i", video, "-vframes", "1", "-q:v", "2", path]):
             frames.append(path)
     return frames
+
+
+async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
     m = message
 
-    # ── Photo ─────────────────────────────────────────────────────────────────
     if m.photo:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as f:
             path = f.name
@@ -87,7 +90,6 @@ async def _extract_frames(video: str, count: int = 3) -> list[str]:
         finally:
             _unlink(path)
 
-    # ── Sticker ───────────────────────────────────────────────────────────────
     if m.sticker:
         if m.sticker.is_animated or m.sticker.is_video:
             return f"[Sticker: {m.sticker.emoji or ''}]"
@@ -102,14 +104,13 @@ async def _extract_frames(video: str, count: int = 3) -> list[str]:
         finally:
             _unlink(path)
 
-    # ── GIF / Animation ───────────────────────────────────────────────────────
     if m.animation:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as f:
             path = f.name
         frame = path + ".jpg"
         try:
             await bot.download(m.animation.file_id, destination=path)
-            if _ffmpeg(["-ss", "0", "-i", path, "-vframes", "1", "-q:v", "2", frame]):
+            if await _ffmpeg(["-ss", "0", "-i", path, "-vframes", "1", "-q:v", "2", frame]):
                 return await _vision(frame, "Describe this GIF/animation briefly.")
             return "[GIF]"
         except Exception as exc:
@@ -118,7 +119,6 @@ async def _extract_frames(video: str, count: int = 3) -> list[str]:
         finally:
             _unlink(path, frame)
 
-    # ── Voice ─────────────────────────────────────────────────────────────────
     if m.voice:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as f:
             path = f.name
@@ -131,23 +131,22 @@ async def _extract_frames(video: str, count: int = 3) -> list[str]:
         finally:
             _unlink(path)
 
-    # ── Video note (кружочек) ─────────────────────────────────────────────────
     if m.video_note:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as f:
             video = f.name
         audio = video + ".wav"
-        frames = []
+        frames: list[str] = []
         try:
             await bot.download(m.video_note.file_id, destination=video)
             parts: list[str] = []
-            frames = await _extract_frames(video, count=3)
+            frames = await _extract_frames(video)
             if frames:
                 try:
                     descs = [await _vision(fr, "Describe this video note frame briefly.") for fr in frames]
                     parts.append("[Visual] " + " | ".join(descs))
                 except Exception as exc:
                     logger.warning("Vision on video note failed: %s", exc)
-            if _ffmpeg(["-i", video, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", audio]):
+            if await _ffmpeg(["-i", video, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", audio]):
                 try:
                     t = await groq_whisper(audio)
                     if t:
@@ -161,9 +160,9 @@ async def _extract_frames(video: str, count: int = 3) -> list[str]:
         finally:
             _unlink(video, audio, *frames)
 
-    # ── Video ─────────────────────────────────────────────────────────────────
     if m.video or (m.document and (m.document.mime_type or "").startswith("video/")):
         obj = m.video or m.document
+        logger.info("Video received: size=%s duration=%s", obj.file_size, getattr(obj, "duration", None))
         if (obj.file_size or 0) > MAX_FILE_MB * 1024 * 1024:
             return f"[Video too large: {obj.file_size / 1024 / 1024:.1f} MB]"
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as f:
@@ -171,22 +170,37 @@ async def _extract_frames(video: str, count: int = 3) -> list[str]:
         audio = video + ".wav"
         frames = []
         try:
+            logger.info("Downloading video...")
             await bot.download(obj.file_id, destination=video)
+            actual_size = os.path.getsize(video)
+            logger.info("Video downloaded: %d bytes (expected %d)", actual_size, obj.file_size)
+            if actual_size == 0:
+                return "[Video download failed — empty file]"
+            
+            # Try frames with shorter timeout
             parts = []
-            frames = await _extract_frames(video, count=3)
+            try:
+                frames = await asyncio.wait_for(_extract_frames(video), timeout=30)
+                logger.info("Extracted %d frames", len(frames))
+            except asyncio.TimeoutError:
+                logger.warning("Frame extraction timed out, skipping visual analysis")
+                frames = []
             if frames:
                 try:
                     descs = [await _vision(fr, "Describe this video frame briefly.") for fr in frames]
                     parts.append("[Visual] " + " | ".join(descs))
                 except Exception as exc:
                     logger.warning("Vision on video frame failed: %s", exc)
-            if _ffmpeg(["-i", video, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", audio]):
+            logger.info("Extracting audio...")
+            if await _ffmpeg(["-i", video, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", audio]):
+                logger.info("Transcribing audio...")
                 try:
                     t = await groq_whisper(audio)
                     if t:
                         parts.append("[Speech] " + t)
                 except Exception as exc:
                     logger.warning("Whisper on video failed: %s", exc)
+            logger.info("Video analysis done: %s", parts)
             if parts:
                 return "\n".join(parts)
             dur = getattr(m.video, "duration", None)
@@ -197,7 +211,6 @@ async def _extract_frames(video: str, count: int = 3) -> list[str]:
         finally:
             _unlink(video, audio, *frames)
 
-    # ── Document image ────────────────────────────────────────────────────────
     if m.document and (m.document.mime_type or "").startswith("image/"):
         ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}.get(m.document.mime_type, ".jpg")
         with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as f:
@@ -212,3 +225,12 @@ async def _extract_frames(video: str, count: int = 3) -> list[str]:
             _unlink(path)
 
     return None
+
+
+async def analyze(message: Message, bot: Bot) -> Optional[str]:
+    """Public wrapper used by bot.py.
+
+    The handler code expects media_handler.analyze(), so keep this stable even
+    if the implementation is refactored internally.
+    """
+    return await _analyze_impl(message, bot)
