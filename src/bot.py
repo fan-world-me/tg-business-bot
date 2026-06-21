@@ -248,7 +248,11 @@ def register(dp: Dispatcher, bot: Bot) -> None:
 
         conversations[conn_id].append({"role": "assistant", "content": reply})
         await message.answer(reply)
-        asyncio.create_task(db.log_message(conn_id, user_id, user_name, user_content, reply))
+        try:
+            await db.log_message(conn_id, user_id, user_name, user_content, reply)
+            logger.info("conversation saved: conn_id=%s user_id=%s", conn_id, user_id)
+        except Exception as exc:
+            logger.error("conversation save failed: %s", exc)
         asyncio.create_task(_notify_owner(bot, user_name, user_id, user_content, reply))
 
     @dp.callback_query(lambda c: c.data.startswith("unmute:"))
