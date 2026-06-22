@@ -10,10 +10,18 @@ logger = logging.getLogger(__name__)
 
 
 async def _post(url: str, headers: dict, body: dict) -> str:
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=120) as client:
         r = await client.post(url, headers=headers, json=body)
         r.raise_for_status()
-        return r.json()["choices"][0]["message"]["content"].strip()
+        payload = r.json()
+        choice = payload["choices"][0]
+        message = choice.get("message", {})
+        text = message.get("content") or message.get("reasoning") or choice.get("text") or ""
+        if isinstance(text, list):
+            text = " ".join(
+                part.get("text", "") for part in text if isinstance(part, dict)
+            )
+        return str(text).strip()
 
 
 def _groq_headers() -> dict:
