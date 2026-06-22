@@ -1,15 +1,15 @@
 # tg-business-bot
 
-Telegram business-bot з автовідповідями на AI, логами в Cloudflare D1, медіа в R2.
+Telegram business-bot with AI auto-replies, Cloudflare D1 logs, and media storage in R2.
 
 ## Features
-- Auto-replies via Groq → NVIDIA fallback
-- Photo / video / voice / sticker / GIF / video note analysis
+- Groq for text, photo, voice, and sticker analysis
+- NVIDIA multimodal models for GIF, video note, and video analysis
 - Cloudflare D1 conversation logs
 - Forwarded messages saved to D1 + media uploaded to R2
 - `/on` `/off` `/status` `/muted` `/mute` `/unmute`
-- 🔇 Mute button in every notification
-- Missed call → auto-reply
+- Mute button in every notification
+- Missed call auto-reply
 
 ## Setup
 
@@ -23,6 +23,31 @@ pip install -r requirements.txt
 python src/main.py
 ```
 
+## NVIDIA Probe
+
+Before deploying, verify the NVIDIA endpoint and model wiring:
+
+```bash
+python scripts/nvidia_probe.py
+```
+
+Optional base64 payload test:
+
+```bash
+python scripts/nvidia_probe.py --base64
+```
+
+The probe uses:
+
+- `NVIDIA_API_BASE_URL=https://integrate.api.nvidia.com/v1/chat/completions`
+- `NVIDIA_VIDEO_MODEL=nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`
+
+## Runtime Limits
+
+- `MAX_FILE_MB` applies to non-video uploads
+- `MAX_VIDEO_MB` caps `video`, `video_note`, and `animation`
+- `VIDEO_ANALYSIS_CONCURRENCY=1` keeps video analysis serialized to avoid RAM spikes on small containers
+
 ## Deploy (Fly.io)
 
 ```bash
@@ -33,4 +58,4 @@ fly deploy
 
 ## License
 
-GPL-3.0 — see [LICENSE](LICENSE)
+GPL-3.0 - see [LICENSE](LICENSE)

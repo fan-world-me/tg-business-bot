@@ -1,9 +1,10 @@
 """AI calls: Groq primary, NVIDIA fallback."""
 import logging
+from typing import Any
 
 import httpx
 
-from config import GROQ_API_KEY, NVIDIA_API_KEY, MAX_TOKENS
+from config import GROQ_API_KEY, NVIDIA_API_KEY, MAX_TOKENS, NVIDIA_API_BASE_URL, NVIDIA_VIDEO_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,18 @@ async def groq_chat(messages: list[dict], model: str = "llama-3.3-70b-versatile"
 
 async def nvidia_chat(messages: list[dict], model: str = "meta/llama-3.1-70b-instruct") -> str:
     body = {"model": model, "messages": messages, "max_tokens": MAX_TOKENS, "temperature": 0.7}
-    return await _post("https://integrate.api.nvidia.com/v1/chat/completions", _nvidia_headers(), body)
+    return await _post(NVIDIA_API_BASE_URL, _nvidia_headers(), body)
+
+
+async def nvidia_multimodal(
+    messages: list[dict],
+    model: str = NVIDIA_VIDEO_MODEL,
+    extra_body: dict[str, Any] | None = None,
+) -> str:
+    body: dict[str, Any] = {"model": model, "messages": messages, "max_tokens": MAX_TOKENS, "temperature": 0.2}
+    if extra_body:
+        body.update(extra_body)
+    return await _post(NVIDIA_API_BASE_URL, _nvidia_headers(), body)
 
 
 async def groq_whisper(audio_path: str) -> str:

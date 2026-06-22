@@ -32,6 +32,14 @@ D1_API_TOKEN: str = os.environ["CLOUDFLARE_D1_API_TOKEN"]
 # AI keys
 GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
 NVIDIA_API_KEY: str = os.getenv("NVIDIA_API_KEY", "")
+NVIDIA_API_BASE_URL: str = os.getenv(
+    "NVIDIA_API_BASE_URL",
+    "https://integrate.api.nvidia.com/v1/chat/completions",
+)
+NVIDIA_VIDEO_MODEL: str = os.getenv(
+    "NVIDIA_VIDEO_MODEL",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+)
 
 # Cloudflare R2
 R2_ACCOUNT_ID: str = os.getenv("R2_ACCOUNT_ID", CF_ACCOUNT_ID)
@@ -43,4 +51,5 @@ R2_PUBLIC_URL: str = os.getenv("R2_PUBLIC_URL", "")
 # Limits
 MAX_TOKENS: int = int(os.getenv("MAX_TOKENS", "500"))
 MAX_FILE_MB: int = int(os.getenv("MAX_FILE_MB", "20"))
+MAX_VIDEO_MB: int = int(os.getenv("MAX_VIDEO_MB", "10"))
 HISTORY_LIMIT: int = int(os.getenv("HISTORY_LIMIT", "20"))
