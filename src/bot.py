@@ -240,10 +240,6 @@ async def _process_inbound_message(
         except Exception as exc:
             logger.error("URL analysis error: %s", exc)
 
-    if url_desc and url_desc.startswith("[GEMINI_RATE_LIMIT]"):
-        await message.answer("Gemini вернул 429, сейчас не могу проанализировать это YouTube-видео.")
-        return
-
     media_desc: Optional[str] = None
     if _has_media(message):
         try:
