@@ -40,6 +40,11 @@ CODE_EXTS = {
     ".json", ".jsonl", ".ndjson", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".md",
     ".txt", ".log", ".html", ".htm", ".css", ".scss", ".xml", ".dockerfile",
     ".gitignore",
+    # additional languages
+    ".dart", ".lua", ".r", ".jl", ".ex", ".exs", ".zig", ".m", ".mm",
+    ".vue", ".svelte", ".astro", ".elm", ".clj", ".cljs", ".erl", ".hrl",
+    ".hs", ".ml", ".mli", ".fs", ".fsx", ".v", ".vhd", ".vhdl",
+    ".tf", ".hcl", ".nix", ".proto", ".graphql", ".gql",
 }
 DOC_EXTS = {".pdf", ".docx", ".pptx", ".xlsx", ".zip"}
 TEXT_MIME_PREFIXES = ("text/",)
