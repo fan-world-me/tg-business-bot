@@ -219,6 +219,59 @@ async def _save_forward(message: Message, bot: Bot) -> None:
     logger.info("Forward saved: type=%s from=%s media=%s", msg_type, user_name, media_key)
 
 
+async def _save_own_media(message: Message, bot: Bot) -> None:
+    """Save owner's own (non-forwarded) media to R2 and log to D1."""
+    import os, time as _time
+
+    async def _upload(file_id: str, suffix: str) -> str | None:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as f:
+            path = f.name
+        try:
+            await bot.download(file_id, destination=path)
+            key = f"owner/{int(_time.time())}{suffix}"
+            return await r2.upload(path, key)
+        except Exception as exc:
+            logger.error("Owner media upload failed: %s", exc)
+            return None
+        finally:
+            if os.path.exists(path):
+                os.unlink(path)
+
+    m = message
+    media_key = None
+    msg_type = "text"
+    text = m.text or m.caption or None
+
+    if m.photo:
+        msg_type = "photo"
+        media_key = await _upload(m.photo[-1].file_id, ".jpg")
+    elif m.video:
+        msg_type = "video"
+        media_key = await _upload(m.video.file_id, ".mp4")
+    elif m.voice:
+        msg_type = "voice"
+        media_key = await _upload(m.voice.file_id, ".ogg")
+    elif m.video_note:
+        msg_type = "video_note"
+        media_key = await _upload(m.video_note.file_id, ".mp4")
+    elif m.audio:
+        msg_type = "audio"
+        media_key = await _upload(m.audio.file_id, _suffix_from_name(getattr(m.audio, "file_name", None), ".mp3"))
+    elif m.sticker:
+        msg_type = "sticker"
+        sticker_suffix = ".webm" if m.sticker.is_video else ".tgs" if m.sticker.is_animated else ".webp"
+        media_key = await _upload(m.sticker.file_id, sticker_suffix)
+    elif m.animation:
+        msg_type = "animation"
+        media_key = await _upload(m.animation.file_id, ".mp4")
+    elif m.document:
+        msg_type = "document"
+        media_key = await _upload(m.document.file_id, _suffix_from_name(m.document.file_name, ".bin"))
+
+    await db.log_forward(OWNER_ID, OWNER_NAME, msg_type, text, media_key)
+    logger.info("Owner media saved: type=%s media=%s", msg_type, media_key)
+
+
 async def _process_inbound_message(
     message: Message,
     bot: Bot,
@@ -364,6 +417,14 @@ def register(dp: Dispatcher, bot: Bot) -> None:
     async def on_owner_test_message(message: Message) -> None:
         global test_mode_active
         if not test_mode_active:
+            has_file = bool(
+                message.photo or message.video or message.audio or message.voice
+                or message.video_note or message.document or message.sticker
+                or message.animation
+            )
+            if has_file:
+                asyncio.create_task(_save_own_media(message, bot))
+                await message.reply("✅ Збережено.")
             return
         await _process_inbound_message(
             message=message,
