@@ -290,6 +290,29 @@ def _analyze_local_file(path: str, filename: str | None, mime_type: str | None) 
     return None
 
 
+async def _youtube_oembed(url: str) -> Optional[str]:
+    """Fetch YouTube title + description via oEmbed as a fallback (no API key needed)."""
+    try:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+            r = await client.get(
+                "https://www.youtube.com/oembed",
+                params={"url": url, "format": "json"},
+            )
+            r.raise_for_status()
+            data = r.json()
+            title = data.get("title", "")
+            author = data.get("author_name", "")
+            parts = []
+            if title:
+                parts.append(f"Title: {title}")
+            if author:
+                parts.append(f"Channel: {author}")
+            return "\n".join(parts) if parts else None
+    except Exception as exc:
+        logger.warning("YouTube oEmbed fallback failed: %s", exc)
+        return None
+
+
 async def analyze_url(url: str) -> Optional[str]:
     url = url.strip()
     if not URL_RE.match(url):
@@ -301,10 +324,11 @@ async def analyze_url(url: str) -> Optional[str]:
                 "Summarize this public YouTube video in 2-3 short sentences. Mention the main topic and any important moments. Do not provide reasoning.",
             )
         except GeminiRateLimitError:
-            return "[GEMINI_RATE_LIMIT] Gemini returned 429, so I can't analyze this YouTube video right now."
+            logger.warning("Gemini 429 — falling back to oEmbed for %s", url)
+            return await _youtube_oembed(url)
         except Exception as exc:
-            logger.error("YouTube analysis failed: %s", exc)
-            return None
+            logger.error("YouTube Gemini analysis failed: %s — trying oEmbed", exc)
+            return await _youtube_oembed(url)
     path = None
     try:
         path, content_type, suffix = await _download_url(url)
