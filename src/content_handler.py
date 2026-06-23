@@ -145,6 +145,19 @@ def _text_from_xlsx(path: str) -> str:
 
 
 def _safe_zip_names(zf: zipfile.ZipFile) -> list[str]:
+    """Return all file names (up to MAX_ARCHIVE_FILES), regardless of uncompressed size."""
+    names: list[str] = []
+    for info in zf.infolist():
+        if len(names) >= MAX_ARCHIVE_FILES:
+            break
+        if info.is_dir():
+            continue
+        names.append(info.filename)
+    return names
+
+
+def _extractable_zip_names(zf: zipfile.ZipFile) -> list[str]:
+    """Return names of files safe to extract (within uncompressed size budget)."""
     names: list[str] = []
     total_uncompressed = 0
     for info in zf.infolist():
@@ -162,8 +175,9 @@ def _safe_zip_names(zf: zipfile.ZipFile) -> list[str]:
 def _text_from_zip(path: str) -> str:
     parts = []
     with zipfile.ZipFile(path) as zf:
-        names = _safe_zip_names(zf)
-        for name in names:
+        all_names = _safe_zip_names(zf)
+        extract_names = _extractable_zip_names(zf)
+        for name in extract_names:
             if len(parts) >= 10:
                 break
             suffix = _suffix_from_name(name)
@@ -178,9 +192,7 @@ def _text_from_zip(path: str) -> str:
                     parts.append(f"{name}:\n{text}")
     if parts:
         return "ZIP archive text preview:\n\n" + "\n\n---\n\n".join(parts)
-    with zipfile.ZipFile(path) as zf:
-        names = _safe_zip_names(zf)
-    return "ZIP archive with files:\n" + "\n".join(f"- {name}" for name in names)
+    return "ZIP archive with files:\n" + "\n".join(f"- {name}" for name in all_names)
 
 
 def _text_from_plain(path: str) -> str:
