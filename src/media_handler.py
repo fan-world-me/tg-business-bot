@@ -8,8 +8,9 @@ from typing import Optional
 from aiogram import Bot
 from aiogram.types import Message
 
+import content_handler as content_mod
 from ai import groq_whisper, groq_vision, nvidia_multimodal
-from config import MAX_FILE_MB, MAX_VIDEO_MB, NVIDIA_VIDEO_MODEL
+from config import MAX_FILE_MB, MAX_VIDEO_MB, MAX_DOC_MB, NVIDIA_VIDEO_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,34 @@ VIDEO_ANALYSIS_SEMAPHORE = asyncio.Semaphore(int(os.getenv("VIDEO_ANALYSIS_CONCU
 
 def _over_limit(size: int | None, limit_mb: int) -> bool:
     return bool(size and size > limit_mb * 1024 * 1024)
+
+
+def _doc_kind(filename: str | None, mime_type: str | None) -> str | None:
+    if filename:
+        suffix = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+        if suffix in {"pdf", "docx", "pptx", "xlsx", "zip"}:
+            return suffix
+        if suffix in {
+            "py", "js", "ts", "tsx", "jsx", "go", "rs", "java", "kt", "c", "h",
+            "cpp", "hpp", "cs", "php", "rb", "swift", "sh", "bash", "ps1", "sql",
+            "json", "yaml", "yml", "toml", "ini", "cfg", "md", "txt", "html", "css",
+            "scss", "xml",
+        } or filename.lower() == "dockerfile" or filename.lower().endswith(".dockerfile"):
+            return "code"
+    if mime_type:
+        if mime_type == "application/pdf":
+            return "pdf"
+        if mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            return "docx"
+        if mime_type == "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+            return "pptx"
+        if mime_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+            return "xlsx"
+        if mime_type == "application/zip":
+            return "zip"
+        if mime_type.startswith("text/") or mime_type in {"application/json", "application/xml", "text/csv"}:
+            return "code"
+    return None
 
 
 def _unlink(*paths: str) -> None:
@@ -178,6 +207,25 @@ async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
             return None
         finally:
             _unlink(path)
+
+    if m.document:
+        kind = _doc_kind(m.document.file_name, m.document.mime_type)
+        if kind:
+            if _over_limit(m.document.file_size, MAX_DOC_MB):
+                return f"[Document too large: {m.document.file_size / 1024 / 1024:.1f} MB]"
+            suffix = m.document.file_name.rsplit(".", 1)[-1].lower() if m.document.file_name and "." in m.document.file_name else kind
+            if suffix == "dockerfile":
+                suffix = "txt"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=f".{suffix if suffix not in {'pdf', 'docx', 'pptx', 'xlsx', 'zip'} else suffix}") as f:
+                path = f.name
+            try:
+                await bot.download(m.document.file_id, destination=path)
+                return await content_mod.analyze_file(path, m.document.file_name, m.document.mime_type)
+            except Exception as exc:
+                logger.error("Document analysis failed: %s", exc)
+                return None
+            finally:
+                _unlink(path)
 
     return None
 

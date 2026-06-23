@@ -9,6 +9,7 @@ from aiogram.filters import Command
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 from ai import groq_chat, nvidia_chat
+import content_handler as content_mod
 from config import (
     OWNER_ID, OWNER_USERNAME, OWNER_NAME, OWNER_EMAIL, OWNER_GITHUB, OWNER_WEBSITE,
     PAYMENT_UAH_CARD, PAYMENT_UAH_BANK, PAYMENT_USD_CARD, PAYMENT_USD_BANK,
@@ -59,7 +60,26 @@ def _has_media(m: Message) -> bool:
     return bool(
         m.photo or m.video or m.voice or m.sticker or m.animation or m.video_note or
         (m.document and m.document.mime_type and
-         (m.document.mime_type.startswith("image/") or m.document.mime_type.startswith("video/")))
+         (
+             m.document.mime_type.startswith("image/") or
+             m.document.mime_type.startswith("video/") or
+             m.document.mime_type.startswith("text/") or
+             m.document.mime_type in {
+                 "application/pdf",
+                 "application/zip",
+                 "application/json",
+                 "application/xml",
+                 "text/csv",
+                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                 "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+             }
+         )) or
+        (m.document and m.document.file_name and m.document.file_name.lower().endswith(
+            (".pdf", ".docx", ".pptx", ".xlsx", ".zip", ".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java",
+             ".kt", ".c", ".h", ".cpp", ".hpp", ".cs", ".php", ".rb", ".swift", ".sh", ".bash", ".ps1", ".sql",
+             ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".md", ".txt", ".html", ".css", ".scss", ".xml")
+        ))
     )
 
 
@@ -215,6 +235,13 @@ def register(dp: Dispatcher, bot: Bot) -> None:
         # Build text content
         text = message.text or message.caption or ""
 
+        url_desc = None
+        if text.strip().startswith(("http://", "https://")):
+            try:
+                url_desc = await content_mod.analyze_url(text.strip())
+            except Exception as exc:
+                logger.error("URL analysis error: %s", exc)
+
         # Analyze media
         media_desc: Optional[str] = None
         if _has_media(message):
@@ -223,7 +250,11 @@ def register(dp: Dispatcher, bot: Bot) -> None:
             except Exception as exc:
                 logger.error("Media analysis error: %s", exc)
 
-        if media_desc:
+        if url_desc and media_desc:
+            user_content = f"{text}\n[URL: {url_desc}]\n[Media: {media_desc}]".strip()
+        elif url_desc:
+            user_content = f"{text}\n[URL: {url_desc}]".strip()
+        elif media_desc:
             user_content = f"{text}\n[Media: {media_desc}]".strip() if text else f"[Media: {media_desc}]"
         else:
             user_content = text or "[non-text message]"

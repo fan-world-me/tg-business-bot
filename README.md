@@ -5,6 +5,7 @@ Telegram business-bot with AI auto-replies, Cloudflare D1 logs, and media storag
 ## Features
 - Groq for text, photo, voice, and sticker analysis
 - NVIDIA multimodal models for GIF, video note, and video analysis
+- URL, PDF, DOCX, PPTX, XLSX, ZIP, and code/text extraction with lightweight parsers
 - Cloudflare D1 conversation logs
 - Forwarded messages saved to D1 + media uploaded to R2
 - `/on` `/off` `/status` `/muted` `/mute` `/unmute`
@@ -46,6 +47,10 @@ The probe uses:
 
 - `MAX_FILE_MB` applies to non-video uploads
 - `MAX_VIDEO_MB` caps `video`, `video_note`, and `animation`
+- `MAX_DOC_MB` caps documents, archives, and code/text files
+- `MAX_URL_MB` caps fetched web pages or direct file URLs
+- `MAX_ARCHIVE_MB` and `MAX_ARCHIVE_FILES` limit ZIP inspection
+- `MAX_TEXT_CHARS` caps extracted text sent into the LLM
 - `VIDEO_ANALYSIS_CONCURRENCY=1` keeps video analysis serialized to avoid RAM spikes on small containers
 
 ## Deploy (Fly.io)
