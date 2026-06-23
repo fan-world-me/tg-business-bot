@@ -112,19 +112,18 @@ async def gemini_youtube_video(url: str, prompt: str, model: str = GEMINI_VIDEO_
     if not GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY is not configured")
     body = {
-        "model": model,
-        "input": [
-            {"type": "text", "text": prompt},
-            {"type": "video", "uri": url},
-        ],
+        "contents": [{
+            "parts": [
+                {"text": prompt},
+                {"fileData": {"fileUri": url, "mimeType": "video/mp4"}},
+            ]
+        }]
     }
     async with httpx.AsyncClient(timeout=120) as client:
         resp = await client.post(
-            "https://generativelanguage.googleapis.com/v1beta/interactions",
-            headers={
-                "x-goog-api-key": GEMINI_API_KEY,
-                "Content-Type": "application/json",
-            },
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            params={"key": GEMINI_API_KEY},
+            headers={"Content-Type": "application/json"},
             json=body,
         )
         if resp.status_code == 429:
@@ -132,52 +131,14 @@ async def gemini_youtube_video(url: str, prompt: str, model: str = GEMINI_VIDEO_
         resp.raise_for_status()
         payload = resp.json()
 
-    if isinstance(payload, dict):
-        for key in ("output_text", "text"):
-            value = payload.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        steps = payload.get("steps")
-        if isinstance(steps, list):
-            texts: list[str] = []
-            for step in steps:
-                if not isinstance(step, dict):
-                    continue
-                if step.get("type") not in {"model_output", "output"}:
-                    continue
-                content = step.get("content")
-                if isinstance(content, list):
-                    for part in content:
-                        if isinstance(part, dict):
-                            txt = part.get("text")
-                            if txt:
-                                texts.append(str(txt))
-                elif isinstance(content, str) and content.strip():
-                    texts.append(content.strip())
-            if texts:
-                return "\n".join(texts).strip()
-        output = payload.get("output")
-        if isinstance(output, list):
-            parts = []
-            for item in output:
-                if isinstance(item, dict):
-                    text = item.get("text") or item.get("output_text")
-                    if text:
-                        parts.append(str(text))
-            if parts:
-                return "\n".join(parts).strip()
-        candidates = payload.get("candidates")
-        if isinstance(candidates, list) and candidates:
-            cand = candidates[0]
-            if isinstance(cand, dict):
-                content = cand.get("content")
-                if isinstance(content, dict):
-                    parts = content.get("parts")
-                    if isinstance(parts, list):
-                        text = " ".join(
-                            str(part.get("text", "")) for part in parts
-                            if isinstance(part, dict) and part.get("text")
-                        ).strip()
-                        if text:
-                            return text
+    try:
+        candidates = payload.get("candidates", [])
+        if candidates:
+            parts = candidates[0].get("content", {}).get("parts", [])
+            texts = [p.get("text", "") for p in parts if "text" in p]
+            result = " ".join(texts).strip()
+            if result:
+                return result
+    except Exception as exc:
+        logger.error("Gemini response parse error: %s — payload: %s", exc, str(payload)[:500])
     return str(payload).strip()

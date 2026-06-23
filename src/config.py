@@ -41,7 +41,7 @@ NVIDIA_VIDEO_MODEL: str = os.getenv(
     "NVIDIA_VIDEO_MODEL",
     "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
 )
-GEMINI_VIDEO_MODEL: str = os.getenv("GEMINI_VIDEO_MODEL", "gemini-3.5-flash")
+GEMINI_VIDEO_MODEL: str = os.getenv("GEMINI_VIDEO_MODEL", "gemini-2.0-flash")
 
 # Cloudflare R2
 R2_ACCOUNT_ID: str = os.getenv("R2_ACCOUNT_ID", CF_ACCOUNT_ID)

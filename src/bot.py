@@ -28,6 +28,15 @@ test_mode_active: bool = False
 conversations: dict[str, list[dict]] = {}
 muted_users: dict[int, str] = {}  # user_id → user_name
 
+MAX_CONVERSATIONS = 200  # cap in-memory conversations to avoid OOM on 512 MB Heroku
+
+
+def _trim_conversations() -> None:
+    if len(conversations) > MAX_CONVERSATIONS:
+        oldest_keys = list(conversations.keys())[: len(conversations) - MAX_CONVERSATIONS]
+        for k in oldest_keys:
+            del conversations[k]
+
 # ─── System prompt ────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = f"""You are a smart assistant replying on behalf of @{OWNER_USERNAME} in Telegram.
@@ -256,6 +265,7 @@ async def _process_inbound_message(
         except Exception as exc:
             logger.error("load_history failed: %s", exc)
             conversations[conn_id] = []
+        _trim_conversations()
 
     conversations[conn_id].append({"role": "user", "content": user_content})
     if len(conversations[conn_id]) > HISTORY_LIMIT:
