@@ -48,8 +48,14 @@ def _auth_headers(key: str, content_type: str, payload: bytes) -> dict:
 
 _MIME = {
     "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
-    "webp": "image/webp", "mp4": "video/mp4", "ogg": "audio/ogg",
-    "wav": "audio/wav", "mp3": "audio/mpeg",
+    "webp": "image/webp", "gif": "image/gif", "avif": "image/avif",
+    "mp4": "video/mp4", "webm": "video/webm", "mov": "video/quicktime",
+    "ogg": "audio/ogg", "wav": "audio/wav", "mp3": "audio/mpeg", "m4a": "audio/mp4",
+    "pdf": "application/pdf", "txt": "text/plain", "log": "text/plain",
+    "json": "application/json", "xml": "application/xml", "csv": "text/csv",
+    "zip": "application/zip", "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
 
 

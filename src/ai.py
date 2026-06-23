@@ -4,9 +4,21 @@ from typing import Any
 
 import httpx
 
-from config import GROQ_API_KEY, NVIDIA_API_KEY, MAX_TOKENS, NVIDIA_API_BASE_URL, NVIDIA_VIDEO_MODEL
+from config import (
+    GEMINI_API_KEY,
+    GEMINI_VIDEO_MODEL,
+    GROQ_API_KEY,
+    NVIDIA_API_KEY,
+    MAX_TOKENS,
+    NVIDIA_API_BASE_URL,
+    NVIDIA_VIDEO_MODEL,
+)
 
 logger = logging.getLogger(__name__)
+
+
+class GeminiRateLimitError(RuntimeError):
+    """Gemini returned 429 / RESOURCE_EXHAUSTED."""
 
 
 async def _post(url: str, headers: dict, body: dict) -> str:
@@ -22,6 +34,19 @@ async def _post(url: str, headers: dict, body: dict) -> str:
                 part.get("text", "") for part in text if isinstance(part, dict)
             )
         return str(text).strip()
+
+
+def _extract_http_error_text(resp: httpx.Response) -> str:
+    try:
+        payload = resp.json()
+    except Exception:
+        return resp.text.strip()
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, dict):
+            return str(error.get("message") or error.get("status") or payload).strip()
+        return str(payload.get("message") or payload).strip()
+    return str(payload).strip()
 
 
 def _groq_headers() -> dict:
@@ -81,3 +106,59 @@ async def groq_vision(image_path: str, prompt: str = "Describe this image briefl
         "max_tokens": MAX_TOKENS,
     }
     return await _post("https://api.groq.com/openai/v1/chat/completions", _groq_headers(), body)
+
+
+async def gemini_youtube_video(url: str, prompt: str, model: str = GEMINI_VIDEO_MODEL) -> str:
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is not configured")
+    body = {
+        "model": model,
+        "input": [
+            {"type": "text", "text": prompt},
+            {"type": "video", "uri": url},
+        ],
+    }
+    async with httpx.AsyncClient(timeout=120) as client:
+        resp = await client.post(
+            "https://generativelanguage.googleapis.com/v1beta/interactions",
+            headers={
+                "x-goog-api-key": GEMINI_API_KEY,
+                "Content-Type": "application/json",
+            },
+            json=body,
+        )
+        if resp.status_code == 429:
+            raise GeminiRateLimitError(_extract_http_error_text(resp) or "Gemini rate limit reached")
+        resp.raise_for_status()
+        payload = resp.json()
+
+    if isinstance(payload, dict):
+        for key in ("output_text", "text"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        output = payload.get("output")
+        if isinstance(output, list):
+            parts = []
+            for item in output:
+                if isinstance(item, dict):
+                    text = item.get("text") or item.get("output_text")
+                    if text:
+                        parts.append(str(text))
+            if parts:
+                return "\n".join(parts).strip()
+        candidates = payload.get("candidates")
+        if isinstance(candidates, list) and candidates:
+            cand = candidates[0]
+            if isinstance(cand, dict):
+                content = cand.get("content")
+                if isinstance(content, dict):
+                    parts = content.get("parts")
+                    if isinstance(parts, list):
+                        text = " ".join(
+                            str(part.get("text", "")) for part in parts
+                            if isinstance(part, dict) and part.get("text")
+                        ).strip()
+                        if text:
+                            return text
+    return str(payload).strip()

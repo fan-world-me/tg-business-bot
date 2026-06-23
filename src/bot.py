@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 # ─── State ────────────────────────────────────────────────────────────────────
 
 enabled: bool = True
+test_mode_active: bool = False
 conversations: dict[str, list[dict]] = {}
 muted_users: dict[int, str] = {}  # user_id → user_name
 
@@ -57,12 +58,16 @@ Rules:
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _has_media(m: Message) -> bool:
+    doc_kind = None
+    if m.document:
+        doc_kind = media_mod._media_doc_kind(m.document.file_name, m.document.mime_type)
     return bool(
-        m.photo or m.video or m.voice or m.sticker or m.animation or m.video_note or
+        m.photo or m.video or m.audio or m.voice or m.sticker or m.animation or m.video_note or
         (m.document and m.document.mime_type and
          (
              m.document.mime_type.startswith("image/") or
              m.document.mime_type.startswith("video/") or
+             m.document.mime_type.startswith("audio/") or
              m.document.mime_type.startswith("text/") or
              m.document.mime_type in {
                  "application/pdf",
@@ -75,6 +80,7 @@ def _has_media(m: Message) -> bool:
                  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
              }
          )) or
+        doc_kind in {"image", "video", "audio"} or
         (m.document and m.document.file_name and m.document.file_name.lower().endswith(
             (".pdf", ".docx", ".pptx", ".xlsx", ".zip", ".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java",
              ".kt", ".c", ".h", ".cpp", ".hpp", ".cs", ".php", ".rb", ".swift", ".sh", ".bash", ".ps1", ".sql",
@@ -119,6 +125,17 @@ def _muted_keyboard() -> InlineKeyboardMarkup:
         for uid, name in muted_users.items()
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def _suffix_from_name(name: str | None, fallback: str = ".bin") -> str:
+    if not name:
+        return fallback
+    low = name.lower()
+    if low.endswith(".dockerfile"):
+        return ".txt"
+    if "." in low:
+        return "." + low.rsplit(".", 1)[-1]
+    return fallback
 
 
 async def _save_forward(message: Message, bot: Bot) -> None:
@@ -175,12 +192,90 @@ async def _save_forward(message: Message, bot: Bot) -> None:
         media_key = await _upload(message.video_note.file_id, ".mp4")
     elif message.audio:
         msg_type = "audio"
-        media_key = await _upload(message.audio.file_id, ".mp3")
+        media_key = await _upload(message.audio.file_id, _suffix_from_name(getattr(message.audio, "file_name", None), ".mp3"))
+    elif message.sticker:
+        msg_type = "sticker"
+        sticker_suffix = ".webm" if message.sticker.is_video else ".tgs" if message.sticker.is_animated else ".webp"
+        media_key = await _upload(message.sticker.file_id, sticker_suffix)
+    elif message.animation:
+        msg_type = "animation"
+        media_key = await _upload(message.animation.file_id, ".mp4")
     elif message.document:
         msg_type = "document"
+        media_key = await _upload(message.document.file_id, _suffix_from_name(message.document.file_name, ".bin"))
 
     await db.log_forward(user_id, user_name, msg_type, text, media_key)
     logger.info("Forward saved: type=%s from=%s media=%s", msg_type, user_name, media_key)
+
+
+async def _process_inbound_message(
+    message: Message,
+    bot: Bot,
+    user_id: int,
+    user_name: str,
+    conn_id: str,
+    notify_owner: bool = True,
+) -> None:
+    if user_id in muted_users:
+        return
+
+    text = message.text or message.caption or ""
+
+    url_desc = None
+    if text.strip().startswith(("http://", "https://")):
+        try:
+            url_desc = await content_mod.analyze_url(text.strip())
+        except Exception as exc:
+            logger.error("URL analysis error: %s", exc)
+
+    if url_desc and url_desc.startswith("[GEMINI_RATE_LIMIT]"):
+        await message.answer("Gemini вернул 429, сейчас не могу проанализировать это YouTube-видео.")
+        return
+
+    media_desc: Optional[str] = None
+    if _has_media(message):
+        try:
+            media_desc = await media_mod.analyze(message, bot)
+        except Exception as exc:
+            logger.error("Media analysis error: %s", exc)
+
+    if url_desc and media_desc:
+        user_content = f"{text}\n[URL: {url_desc}]\n[Media: {media_desc}]".strip()
+    elif url_desc:
+        user_content = f"{text}\n[URL: {url_desc}]".strip()
+    elif media_desc:
+        user_content = f"{text}\n[Media: {media_desc}]".strip() if text else f"[Media: {media_desc}]"
+    else:
+        user_content = text or "[non-text message]"
+
+    logger.info("inbound from %s (%s): %.80s", user_name, user_id, user_content)
+
+    if conn_id not in conversations:
+        try:
+            conversations[conn_id] = await db.load_history(conn_id, limit=HISTORY_LIMIT // 2)
+        except Exception as exc:
+            logger.error("load_history failed: %s", exc)
+            conversations[conn_id] = []
+
+    conversations[conn_id].append({"role": "user", "content": user_content})
+    if len(conversations[conn_id]) > HISTORY_LIMIT:
+        conversations[conn_id] = conversations[conn_id][-HISTORY_LIMIT:]
+
+    reply = await _get_reply([{"role": "system", "content": SYSTEM_PROMPT}] + conversations[conn_id])
+
+    if not reply:
+        await message.answer("⚠️ Sorry, I can't respond right now. Please try again later.")
+        return
+
+    conversations[conn_id].append({"role": "assistant", "content": reply})
+    await message.answer(reply)
+    try:
+        await db.log_message(conn_id, user_id, user_name, user_content, reply)
+        logger.info("conversation saved: conn_id=%s user_id=%s", conn_id, user_id)
+    except Exception as exc:
+        logger.error("conversation save failed: %s", exc)
+    if notify_owner:
+        asyncio.create_task(_notify_owner(bot, user_name, user_id, user_content, reply))
 
 
 # ─── Handlers ─────────────────────────────────────────────────────────────────
@@ -241,6 +336,10 @@ def register(dp: Dispatcher, bot: Bot) -> None:
                 url_desc = await content_mod.analyze_url(text.strip())
             except Exception as exc:
                 logger.error("URL analysis error: %s", exc)
+
+        if url_desc and url_desc.startswith("[GEMINI_RATE_LIMIT]"):
+            await message.answer("Gemini вернул 429, сейчас не могу проанализировать это YouTube-видео.")
+            return
 
         # Analyze media
         media_desc: Optional[str] = None
@@ -310,6 +409,26 @@ def register(dp: Dispatcher, bot: Bot) -> None:
         await callback.message.edit_reply_markup(reply_markup=keyboard)
         await callback.answer(f"🔇 {name} muted")
 
+    @dp.message(lambda m: (
+        m.from_user is not None
+        and m.from_user.id == OWNER_ID
+        and m.chat.type == "private"
+        and not (m.text and m.text.startswith("/"))
+        and not (m.forward_from or m.forward_from_chat or m.forward_origin)
+    ))
+    async def on_owner_test_message(message: Message) -> None:
+        global test_mode_active
+        if not test_mode_active:
+            return
+        await _process_inbound_message(
+            message=message,
+            bot=bot,
+            user_id=OWNER_ID,
+            user_name=f"{OWNER_NAME} [TEST]",
+            conn_id=f"test:{OWNER_ID}",
+            notify_owner=False,
+        )
+
     @dp.message(lambda m: m.from_user and m.from_user.id == OWNER_ID and (
         m.forward_from or m.forward_from_chat or m.forward_origin
     ))
@@ -323,7 +442,7 @@ def register(dp: Dispatcher, bot: Bot) -> None:
         if message.from_user.id != OWNER_ID:
             return
         state = "✅ ON" if enabled else "🔇 OFF"
-        await message.answer(f"🤖 Bot is running\nAuto-replies: {state}\n\nCommands: /on /off /status /muted /mute <id>")
+        await message.answer(f"🤖 Bot is running\nAuto-replies: {state}\n\nCommands: /on /off /status /muted /mute <id> /test /end_test")
 
     @dp.message(Command("on"))
     async def cmd_on(message: Message) -> None:
@@ -381,3 +500,22 @@ def register(dp: Dispatcher, bot: Bot) -> None:
         uid = int(parts[1])
         name = muted_users.pop(uid, str(uid))
         await message.answer(f"🔊 {name} unmuted.")
+
+    @dp.message(Command("test"))
+    async def cmd_test(message: Message) -> None:
+        global test_mode_active
+        if message.from_user.id != OWNER_ID:
+            return
+        test_mode_active = True
+        conversations[f"test:{OWNER_ID}"] = []
+        await message.answer(
+            "Test mode enabled. Send text, photo, video, audio, sticker, or document here and I will treat it like a user message. Use /end_test to stop."
+        )
+
+    @dp.message(Command("end_test"))
+    async def cmd_end_test(message: Message) -> None:
+        global test_mode_active
+        if message.from_user.id != OWNER_ID:
+            return
+        test_mode_active = False
+        await message.answer("Test mode disabled.")

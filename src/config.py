@@ -32,6 +32,7 @@ D1_API_TOKEN: str = os.environ["CLOUDFLARE_D1_API_TOKEN"]
 # AI keys
 GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
 NVIDIA_API_KEY: str = os.getenv("NVIDIA_API_KEY", "")
+GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 NVIDIA_API_BASE_URL: str = os.getenv(
     "NVIDIA_API_BASE_URL",
     "https://integrate.api.nvidia.com/v1/chat/completions",
@@ -40,6 +41,7 @@ NVIDIA_VIDEO_MODEL: str = os.getenv(
     "NVIDIA_VIDEO_MODEL",
     "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
 )
+GEMINI_VIDEO_MODEL: str = os.getenv("GEMINI_VIDEO_MODEL", "gemini-3.5-flash")
 
 # Cloudflare R2
 R2_ACCOUNT_ID: str = os.getenv("R2_ACCOUNT_ID", CF_ACCOUNT_ID)

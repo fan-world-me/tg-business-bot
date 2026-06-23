@@ -18,6 +18,7 @@ from openpyxl import load_workbook
 from pptx import Presentation
 from pypdf import PdfReader
 
+from ai import GeminiRateLimitError, gemini_youtube_video
 from config import (
     MAX_ARCHIVE_FILES,
     MAX_ARCHIVE_MB,
@@ -29,11 +30,16 @@ from config import (
 logger = logging.getLogger(__name__)
 
 URL_RE = re.compile(r"^https?://\S+$", re.IGNORECASE)
+YOUTUBE_RE = re.compile(
+    r"^https?://(?:www\.)?(?:youtube\.com/watch\?v=[^&\s]+|youtu\.be/[^?\s]+|youtube\.com/shorts/[^?\s]+)",
+    re.IGNORECASE,
+)
 CODE_EXTS = {
     ".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java", ".kt", ".c", ".h",
     ".cpp", ".hpp", ".cs", ".php", ".rb", ".swift", ".sh", ".bash", ".ps1", ".sql",
-    ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".md", ".txt", ".html", ".css",
-    ".scss", ".xml", ".dockerfile", ".gitignore",
+    ".json", ".jsonl", ".ndjson", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".md",
+    ".txt", ".log", ".html", ".htm", ".css", ".scss", ".xml", ".dockerfile",
+    ".gitignore",
 }
 DOC_EXTS = {".pdf", ".docx", ".pptx", ".xlsx", ".zip"}
 TEXT_MIME_PREFIXES = ("text/",)
@@ -195,6 +201,10 @@ def _text_from_html(html_bytes: bytes) -> str:
     return _limit_text(text)
 
 
+def _is_youtube_url(url: str) -> bool:
+    return bool(YOUTUBE_RE.match(url))
+
+
 async def _download_url(url: str) -> tuple[str, str | None, str]:
     headers = {
         "User-Agent": "Mozilla/5.0 (CodexBot/1.0)",
@@ -218,7 +228,7 @@ async def _download_url(url: str) -> tuple[str, str | None, str]:
 
 def _is_code_or_text_name(name: str | None) -> bool:
     suffix = _suffix_from_name(name)
-    return suffix in CODE_EXTS or suffix in {".csv", ".log", ".json", ".xml", ".yaml", ".yml"}
+    return suffix in CODE_EXTS or suffix in {".csv", ".log", ".json", ".jsonl", ".ndjson", ".xml", ".yaml", ".yml"}
 
 
 def _doc_kind(filename: str | None, mime_type: str | None) -> str | None:
@@ -240,6 +250,8 @@ def _doc_kind(filename: str | None, mime_type: str | None) -> str | None:
             return "text"
     if suffix in CODE_EXTS:
         return "code"
+    if suffix in {".txt", ".log", ".json", ".jsonl", ".ndjson", ".xml", ".csv"}:
+        return "text"
     return None
 
 
@@ -282,6 +294,17 @@ async def analyze_url(url: str) -> Optional[str]:
     url = url.strip()
     if not URL_RE.match(url):
         return None
+    if _is_youtube_url(url):
+        try:
+            return await gemini_youtube_video(
+                url,
+                "Summarize this public YouTube video in 2-3 short sentences. Mention the main topic and any important moments. Do not provide reasoning.",
+            )
+        except GeminiRateLimitError:
+            return "[GEMINI_RATE_LIMIT] Gemini returned 429, so I can't analyze this YouTube video right now."
+        except Exception as exc:
+            logger.error("YouTube analysis failed: %s", exc)
+            return None
     path = None
     try:
         path, content_type, suffix = await _download_url(url)

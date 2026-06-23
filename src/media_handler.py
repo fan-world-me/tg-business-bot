@@ -2,6 +2,7 @@ import asyncio
 import base64
 import logging
 import os
+import re
 import tempfile
 from typing import Optional
 
@@ -16,9 +17,31 @@ logger = logging.getLogger(__name__)
 
 VIDEO_ANALYSIS_SEMAPHORE = asyncio.Semaphore(int(os.getenv("VIDEO_ANALYSIS_CONCURRENCY", "1")))
 
+MEDIA_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"}
+MEDIA_VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".gif"}
+MEDIA_AUDIO_EXTS = {".mp3", ".m4a", ".aac", ".wav", ".ogg", ".oga", ".flac"}
+
 
 def _over_limit(size: int | None, limit_mb: int) -> bool:
     return bool(size and size > limit_mb * 1024 * 1024)
+
+
+def _compact_summary(text: str, max_chars: int = 500) -> str:
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return text
+    blocked = re.sub(r"(?i)\b(analy(s|z)ing|analysis|reasoning|thoughts?|step[- ]?by[- ]step)\b[: ]*", "", text).strip()
+    lines = [line.strip() for line in blocked.splitlines() if line.strip()]
+    if len(lines) > 1:
+        lines = [
+            line for line in lines
+            if not re.match(r"^\d+[\.\)]\s+", line)
+            and not re.match(r"^[\-\*\u2022]\s+", line)
+        ]
+    compact = " ".join(lines) if lines else blocked
+    sentences = re.split(r"(?<=[.!?])\s+", compact)
+    compact = " ".join(sentences[:2]).strip() if sentences else compact
+    return compact[:max_chars]
 
 
 def _doc_kind(filename: str | None, mime_type: str | None) -> str | None:
@@ -49,6 +72,31 @@ def _doc_kind(filename: str | None, mime_type: str | None) -> str | None:
     return None
 
 
+def _media_doc_kind(filename: str | None, mime_type: str | None) -> str | None:
+    suffix = ""
+    if filename:
+        suffix = "." + filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+        if filename.lower().endswith(".dockerfile"):
+            suffix = ".dockerfile"
+    if mime_type:
+        if mime_type.startswith("image/"):
+            return "image"
+        if mime_type.startswith("video/"):
+            return "video"
+        if mime_type.startswith("audio/"):
+            return "audio"
+        if mime_type == "application/octet-stream":
+            # fall back to filename extension below
+            pass
+    if suffix in MEDIA_IMAGE_EXTS:
+        return "image"
+    if suffix in MEDIA_VIDEO_EXTS:
+        return "video"
+    if suffix in MEDIA_AUDIO_EXTS:
+        return "audio"
+    return None
+
+
 def _unlink(*paths: str) -> None:
     for p in paths:
         try:
@@ -60,7 +108,7 @@ def _unlink(*paths: str) -> None:
 
 async def _vision(image_path: str, prompt: str) -> str:
     try:
-        return await groq_vision(image_path, prompt)
+        return _compact_summary(await groq_vision(image_path, prompt))
     except Exception as exc:
         logger.warning("Groq vision failed (%s), trying NVIDIA", exc)
         ext = image_path.rsplit(".", 1)[-1].lower()
@@ -71,7 +119,7 @@ async def _vision(image_path: str, prompt: str) -> str:
             {"type": "text", "text": prompt},
             {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
         ]}]
-        return await nvidia_multimodal(messages, model="microsoft/phi-3.5-vision-instruct")
+        return _compact_summary(await nvidia_multimodal(messages, model="microsoft/phi-3.5-vision-instruct"))
 
 
 async def _nvidia_video(video_path: str, prompt: str, use_audio: bool = True) -> str:
@@ -85,7 +133,7 @@ async def _nvidia_video(video_path: str, prompt: str, use_audio: bool = True) ->
         ],
     }]
     extra_body = {"mm_processor_kwargs": {"use_audio_in_video": use_audio}}
-    return await nvidia_multimodal(messages, model=NVIDIA_VIDEO_MODEL, extra_body=extra_body)
+    return _compact_summary(await nvidia_multimodal(messages, model=NVIDIA_VIDEO_MODEL, extra_body=extra_body))
 
 
 async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
@@ -98,7 +146,7 @@ async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
             path = f.name
         try:
             await bot.download(m.photo[-1].file_id, destination=path)
-            return await _vision(path, "Describe this image briefly (2-3 sentences).")
+            return await _vision(path, "Describe this image in 1-2 short sentences. Do not provide reasoning or step-by-step analysis.")
         except Exception as exc:
             logger.error("Photo analysis failed: %s", exc)
             return None
@@ -114,7 +162,7 @@ async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
             path = f.name
         try:
             await bot.download(m.sticker.file_id, destination=path)
-            return await _vision(path, "This is a Telegram sticker. Describe it briefly.")
+            return await _vision(path, "This is a Telegram sticker. Describe it in 1 short sentence. Do not provide reasoning.")
         except Exception as exc:
             logger.error("Sticker analysis failed: %s", exc)
             return f"[Sticker: {m.sticker.emoji or ''}]"
@@ -127,9 +175,32 @@ async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
         try:
             await bot.download(m.animation.file_id, destination=path)
             async with VIDEO_ANALYSIS_SEMAPHORE:
-                return await _nvidia_video(path, "Describe this GIF/animation briefly.", use_audio=False)
+                return await _nvidia_video(path, "Describe this GIF/animation in 1 short sentence. Do not provide reasoning.", use_audio=False)
         except Exception as exc:
             logger.error("GIF analysis failed: %s", exc)
+            return None
+        finally:
+            _unlink(path)
+
+    if m.audio:
+        if _over_limit(m.audio.file_size, MAX_FILE_MB):
+            return f"[Audio too large: {m.audio.file_size / 1024 / 1024:.1f} MB]"
+        suffix = ".mp3"
+        if m.audio.mime_type:
+            suffix = {
+                "audio/mpeg": ".mp3",
+                "audio/mp4": ".m4a",
+                "audio/ogg": ".ogg",
+                "audio/wav": ".wav",
+                "audio/x-wav": ".wav",
+            }.get(m.audio.mime_type, suffix)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as f:
+            path = f.name
+        try:
+            await bot.download(m.audio.file_id, destination=path)
+            return await groq_whisper(path)
+        except Exception as exc:
+            logger.error("Audio analysis failed: %s", exc)
             return None
         finally:
             _unlink(path)
@@ -158,7 +229,7 @@ async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
             async with VIDEO_ANALYSIS_SEMAPHORE:
                 return await _nvidia_video(
                     video,
-                    "Describe this Telegram video note briefly. Include any speech you can understand.",
+                    "Describe this Telegram video note in 1-2 short sentences. Include speech only if clearly audible. Do not provide reasoning.",
                     use_audio=True,
                 )
         except Exception as exc:
@@ -167,7 +238,7 @@ async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
         finally:
             _unlink(video)
 
-    if m.video or (m.document and (m.document.mime_type or "").startswith("video/")):
+    if m.video or (m.document and _media_doc_kind(m.document.file_name, m.document.mime_type) == "video"):
         obj = m.video or m.document
         logger.info("Video received: size=%s duration=%s", obj.file_size, getattr(obj, "duration", None))
         if (obj.file_size or 0) > MAX_VIDEO_MB * 1024 * 1024:
@@ -184,7 +255,7 @@ async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
             async with VIDEO_ANALYSIS_SEMAPHORE:
                 return await _nvidia_video(
                     video,
-                    "Describe this video. Summarize the main action, objects, and any speech you can understand.",
+                    "Describe this video in 1-2 short sentences. Mention the main action and any clearly audible speech. Do not provide reasoning.",
                     use_audio=True,
                 )
         except Exception as exc:
@@ -193,17 +264,58 @@ async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
         finally:
             _unlink(video)
 
-    if m.document and (m.document.mime_type or "").startswith("image/"):
+    if m.document and _media_doc_kind(m.document.file_name, m.document.mime_type) == "image":
         if _over_limit(m.document.file_size, MAX_FILE_MB):
             return f"[Image document too large: {m.document.file_size / 1024 / 1024:.1f} MB]"
-        ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}.get(m.document.mime_type, ".jpg")
+        ext = {
+            "image/jpeg": ".jpg",
+            "image/jpg": ".jpg",
+            "image/png": ".png",
+            "image/webp": ".webp",
+            "image/gif": ".gif",
+            "image/avif": ".avif",
+        }.get(m.document.mime_type or "", ".jpg")
+        if m.document.file_name and "." in m.document.file_name:
+            suffix = "." + m.document.file_name.lower().rsplit(".", 1)[-1]
+            if suffix in MEDIA_IMAGE_EXTS:
+                ext = suffix
         with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as f:
             path = f.name
         try:
             await bot.download(m.document.file_id, destination=path)
+            if ext == ".gif":
+                async with VIDEO_ANALYSIS_SEMAPHORE:
+                    return await _nvidia_video(path, "Describe this GIF image in 1 short sentence. Do not provide reasoning.", use_audio=False)
             return await _vision(path, "Describe this image briefly.")
         except Exception as exc:
             logger.error("Document image analysis failed: %s", exc)
+            return None
+        finally:
+            _unlink(path)
+
+    if m.document and _media_doc_kind(m.document.file_name, m.document.mime_type) == "audio":
+        if _over_limit(m.document.file_size, MAX_FILE_MB):
+            return f"[Audio document too large: {m.document.file_size / 1024 / 1024:.1f} MB]"
+        suffix = ".mp3"
+        if m.document.file_name and "." in m.document.file_name:
+            ext = "." + m.document.file_name.lower().rsplit(".", 1)[-1]
+            if ext in MEDIA_AUDIO_EXTS:
+                suffix = ext
+        if m.document.mime_type:
+            suffix = {
+                "audio/mpeg": ".mp3",
+                "audio/mp4": ".m4a",
+                "audio/ogg": ".ogg",
+                "audio/wav": ".wav",
+                "audio/x-wav": ".wav",
+            }.get(m.document.mime_type, suffix)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as f:
+            path = f.name
+        try:
+            await bot.download(m.document.file_id, destination=path)
+            return await groq_whisper(path)
+        except Exception as exc:
+            logger.error("Audio document analysis failed: %s", exc)
             return None
         finally:
             _unlink(path)

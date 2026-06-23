@@ -5,10 +5,11 @@ Telegram business-bot with AI auto-replies, Cloudflare D1 logs, and media storag
 ## Features
 - Groq for text, photo, voice, and sticker analysis
 - NVIDIA multimodal models for GIF, video note, and video analysis
+- Gemini YouTube URL analysis with graceful `429` handling
 - URL, PDF, DOCX, PPTX, XLSX, ZIP, and code/text extraction with lightweight parsers
 - Cloudflare D1 conversation logs
-- Forwarded messages saved to D1 + media uploaded to R2
-- `/on` `/off` `/status` `/muted` `/mute` `/unmute`
+- Forwarded messages saved to D1 + any uploaded file stored in R2
+- `/on` `/off` `/status` `/muted` `/mute` `/unmute` `/test` `/end_test`
 - Mute button in every notification
 - Missed call auto-reply
 
@@ -42,6 +43,7 @@ The probe uses:
 
 - `NVIDIA_API_BASE_URL=https://integrate.api.nvidia.com/v1/chat/completions`
 - `NVIDIA_VIDEO_MODEL=nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`
+- `GEMINI_API_KEY` and `GEMINI_VIDEO_MODEL` are used for public YouTube video summaries
 
 ## Runtime Limits
 
@@ -52,6 +54,7 @@ The probe uses:
 - `MAX_ARCHIVE_MB` and `MAX_ARCHIVE_FILES` limit ZIP inspection
 - `MAX_TEXT_CHARS` caps extracted text sent into the LLM
 - `VIDEO_ANALYSIS_CONCURRENCY=1` keeps video analysis serialized to avoid RAM spikes on small containers
+- In `/test` mode, messages from the owner in private chat are processed like user messages for safe local testing
 
 ## Deploy (Fly.io)
 
