@@ -137,6 +137,25 @@ async def gemini_youtube_video(url: str, prompt: str, model: str = GEMINI_VIDEO_
             value = payload.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
+        steps = payload.get("steps")
+        if isinstance(steps, list):
+            texts: list[str] = []
+            for step in steps:
+                if not isinstance(step, dict):
+                    continue
+                if step.get("type") not in {"model_output", "output"}:
+                    continue
+                content = step.get("content")
+                if isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict):
+                            txt = part.get("text")
+                            if txt:
+                                texts.append(str(txt))
+                elif isinstance(content, str) and content.strip():
+                    texts.append(content.strip())
+            if texts:
+                return "\n".join(texts).strip()
         output = payload.get("output")
         if isinstance(output, list):
             parts = []

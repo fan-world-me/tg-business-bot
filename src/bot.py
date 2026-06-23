@@ -286,12 +286,10 @@ def register(dp: Dispatcher, bot: Bot) -> None:
     async def on_business_message(message: Message) -> None:
         global enabled
 
-        # ── Forwarded message — save and skip auto-reply ──────────────────────
         if message.forward_from or message.forward_from_chat or message.forward_origin:
             asyncio.create_task(_save_forward(message, bot))
             return
 
-        # ── Missed call ───────────────────────────────────────────────────────
         if message.video_chat_ended or message.video_chat_started:
             if message.from_user.id != OWNER_ID:
                 await message.answer(f"@{OWNER_USERNAME} скоро відповість! 📞")
@@ -299,93 +297,31 @@ def register(dp: Dispatcher, bot: Bot) -> None:
 
         if not enabled:
             return
+
         if message.from_user.id == OWNER_ID:
-            # Check if owner is mentioning a user to mute/unmute
             if message.text and message.entities:
                 for entity in message.entities:
                     if entity.type == "mention":
                         username = message.text[entity.offset + 1:entity.offset + entity.length]
-                        # Find user_id by username in muted_users
                         for uid, uname in list(muted_users.items()):
                             if uname.lower() == username.lower() or str(uid) == username:
                                 del muted_users[uid]
                                 await message.reply(f"🔊 @{username} unmuted — bot will reply again.")
                                 return
-                        # Not in muted list — we need user_id, store by username for now
                         await message.reply(
-                            f"⚠️ To mute someone, forward their message to me first so I know their ID.\n"
-                            f"Or use /mute <user_id>"
+                            "⚠️ To mute someone, forward their message to me first so I know their ID.\n"
+                            "Or use /mute <user_id>"
                         )
             return
 
-        user_id = message.from_user.id
-        user_name = message.from_user.full_name or f"id{user_id}"
-
-        # ── Mute check ────────────────────────────────────────────────────────
-        if user_id in muted_users:
-            return
-
-        conn_id = message.business_connection_id
-
-        # Build text content
-        text = message.text or message.caption or ""
-
-        url_desc = None
-        if text.strip().startswith(("http://", "https://")):
-            try:
-                url_desc = await content_mod.analyze_url(text.strip())
-            except Exception as exc:
-                logger.error("URL analysis error: %s", exc)
-
-        if url_desc and url_desc.startswith("[GEMINI_RATE_LIMIT]"):
-            await message.answer("Gemini вернул 429, сейчас не могу проанализировать это YouTube-видео.")
-            return
-
-        # Analyze media
-        media_desc: Optional[str] = None
-        if _has_media(message):
-            try:
-                media_desc = await media_mod.analyze(message, bot)
-            except Exception as exc:
-                logger.error("Media analysis error: %s", exc)
-
-        if url_desc and media_desc:
-            user_content = f"{text}\n[URL: {url_desc}]\n[Media: {media_desc}]".strip()
-        elif url_desc:
-            user_content = f"{text}\n[URL: {url_desc}]".strip()
-        elif media_desc:
-            user_content = f"{text}\n[Media: {media_desc}]".strip() if text else f"[Media: {media_desc}]"
-        else:
-            user_content = text or "[non-text message]"
-
-        logger.info("business_msg from %s (%s): %.80s", user_name, user_id, user_content)
-
-        if conn_id not in conversations:
-            try:
-                conversations[conn_id] = await db.load_history(conn_id, limit=HISTORY_LIMIT // 2)
-            except Exception as exc:
-                logger.error("load_history failed: %s", exc)
-                conversations[conn_id] = []
-
-        conversations[conn_id].append({"role": "user", "content": user_content})
-        if len(conversations[conn_id]) > HISTORY_LIMIT:
-            conversations[conn_id] = conversations[conn_id][-HISTORY_LIMIT:]
-
-        reply = await _get_reply([{"role": "system", "content": SYSTEM_PROMPT}] + conversations[conn_id])
-
-        if not reply:
-            await message.answer("⚠️ Sorry, I can't respond right now. Please try again later.")
-            return
-
-        conversations[conn_id].append({"role": "assistant", "content": reply})
-        await message.answer(reply)
-        try:
-            await db.log_message(conn_id, user_id, user_name, user_content, reply)
-            logger.info("conversation saved: conn_id=%s user_id=%s", conn_id, user_id)
-        except Exception as exc:
-            logger.error("conversation save failed: %s", exc)
-        asyncio.create_task(_notify_owner(bot, user_name, user_id, user_content, reply))
-
+        await _process_inbound_message(
+            message=message,
+            bot=bot,
+            user_id=message.from_user.id,
+            user_name=message.from_user.full_name or f"id{message.from_user.id}",
+            conn_id=message.business_connection_id,
+            notify_owner=True,
+        )
     @dp.callback_query(lambda c: c.data.startswith("unmute:"))
     async def on_unmute(callback: CallbackQuery) -> None:
         if callback.from_user.id != OWNER_ID:
