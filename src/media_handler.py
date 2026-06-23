@@ -54,6 +54,10 @@ def _doc_kind(filename: str | None, mime_type: str | None) -> str | None:
             "cpp", "hpp", "cs", "php", "rb", "swift", "sh", "bash", "ps1", "sql",
             "json", "yaml", "yml", "toml", "ini", "cfg", "md", "txt", "html", "css",
             "scss", "xml",
+            "dart", "lua", "r", "jl", "ex", "exs", "zig", "m", "mm",
+            "vue", "svelte", "astro", "elm", "clj", "cljs", "erl", "hrl",
+            "hs", "ml", "mli", "fs", "fsx", "v", "vhd", "vhdl",
+            "tf", "hcl", "nix", "proto", "graphql", "gql",
         } or filename.lower() == "dockerfile" or filename.lower().endswith(".dockerfile"):
             return "code"
     if mime_type:
