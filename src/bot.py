@@ -11,12 +11,12 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, C
 
 from ai import groq_chat, nvidia_chat
 import content_handler as content_mod
+import db
 from config import (
     OWNER_ID, OWNER_USERNAME, OWNER_NAME, OWNER_EMAIL, OWNER_GITHUB, OWNER_WEBSITE,
     PAYMENT_UAH_CARD, PAYMENT_UAH_BANK, PAYMENT_USD_CARD, PAYMENT_USD_BANK,
     PAYMENT_USDT_ADDRESS, PAYMENT_USDT_NETWORK, HISTORY_LIMIT,
 )
-import db
 import media_handler as media_mod
 import r2
 
@@ -390,6 +390,7 @@ def register(dp: Dispatcher, bot: Bot) -> None:
             return
         uid = int(callback.data.split(":")[1])
         name = muted_users.pop(uid, str(uid))
+        asyncio.create_task(db.remove_muted_user(uid))
         await callback.message.edit_text(f"🔊 {name} unmuted.")
         await callback.answer()
 
@@ -401,6 +402,7 @@ def register(dp: Dispatcher, bot: Bot) -> None:
         uid = int(uid)
         name = ":".join(name_parts) if name_parts else str(uid)
         muted_users[uid] = name
+        asyncio.create_task(db.save_muted_user(uid, name))
         keyboard = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="🔊 Unmute", callback_data=f"unmute:{uid}")
         ]])
@@ -500,6 +502,7 @@ def register(dp: Dispatcher, bot: Bot) -> None:
         uid = int(parts[1])
         name = parts[2] if len(parts) > 2 else str(uid)
         muted_users[uid] = name
+        asyncio.create_task(db.save_muted_user(uid, name))
         await message.answer(f"🔇 {name} ({uid}) muted.")
 
     @dp.message(Command("unmute"))
@@ -512,6 +515,7 @@ def register(dp: Dispatcher, bot: Bot) -> None:
             return
         uid = int(parts[1])
         name = muted_users.pop(uid, str(uid))
+        asyncio.create_task(db.remove_muted_user(uid))
         await message.answer(f"🔊 {name} unmuted.")
 
     @dp.message(Command("test"))
