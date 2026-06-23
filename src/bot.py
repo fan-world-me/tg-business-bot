@@ -425,6 +425,13 @@ def register(dp: Dispatcher, bot: Bot) -> None:
             if has_file:
                 asyncio.create_task(_save_own_media(message, bot))
                 await message.reply("✅ Збережено.")
+            elif message.text:
+                try:
+                    await db.log_forward(OWNER_ID, OWNER_NAME, "text", message.text, None)
+                    logger.info("Owner text saved to D1: %.80s", message.text)
+                except Exception as exc:
+                    logger.error("Owner text save failed: %s", exc)
+                await message.reply("✅ Збережено.")
             return
         await _process_inbound_message(
             message=message,
