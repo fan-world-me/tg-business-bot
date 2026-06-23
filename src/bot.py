@@ -1,6 +1,7 @@
 """Bot handlers: business messages + owner control commands."""
 import asyncio
 import logging
+import re
 import tempfile
 from typing import Optional
 
@@ -232,9 +233,10 @@ async def _process_inbound_message(
     text = message.text or message.caption or ""
 
     url_desc = None
-    if text.strip().startswith(("http://", "https://")):
+    _url_match = re.search(r'https?://\S+', text)
+    if _url_match:
         try:
-            url_desc = await content_mod.analyze_url(text.strip())
+            url_desc = await content_mod.analyze_url(_url_match.group(0))
         except Exception as exc:
             logger.error("URL analysis error: %s", exc)
 
