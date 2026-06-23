@@ -6,6 +6,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.types import Update
 
 import db
+import bot as bot_module
 from bot import register
 from config import BOT_TOKEN
 
@@ -19,6 +20,7 @@ async def main() -> None:
     register(dp, bot)
 
     await db.init_db()
+    bot_module.muted_users.update(await db.load_muted_users())
     logger.info("Bot started. Polling...")
     await dp.start_polling(bot)
 
