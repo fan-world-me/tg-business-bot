@@ -31,6 +31,11 @@ _INIT_SQL = [
         media_key   TEXT,
         ts          TEXT NOT NULL
     )""",
+    """CREATE TABLE IF NOT EXISTS muted_users (
+        user_id   INTEGER PRIMARY KEY,
+        user_name TEXT NOT NULL,
+        muted_at  TEXT NOT NULL
+    )""",
 ]
 
 
@@ -64,6 +69,24 @@ async def log_forward(user_id: int, user_name: str, msg_type: str, text: str | N
         "INSERT INTO forwards (user_id, user_name, msg_type, text, media_key, ts) VALUES (?, ?, ?, ?, ?, ?)",
         [user_id, user_name, msg_type, text, media_key, datetime.now(timezone.utc).isoformat()],
     )
+
+
+async def load_muted_users() -> dict[int, str]:
+    rows = await _query("SELECT user_id, user_name FROM muted_users")
+    if not rows:
+        return {}
+    return {int(row["user_id"]): row["user_name"] for row in rows}
+
+
+async def save_muted_user(user_id: int, user_name: str) -> None:
+    await _query(
+        "INSERT OR REPLACE INTO muted_users (user_id, user_name, muted_at) VALUES (?, ?, ?)",
+        [user_id, user_name, datetime.now(timezone.utc).isoformat()],
+    )
+
+
+async def remove_muted_user(user_id: int) -> None:
+    await _query("DELETE FROM muted_users WHERE user_id = ?", [user_id])
 
 
 async def load_history(conn_id: str, limit: int = 10) -> list[dict]:
