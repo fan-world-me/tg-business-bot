@@ -41,9 +41,8 @@ def _trim_conversations() -> None:
 # ─── System prompt ────────────────────────────────────────────────────────────
 
 _gift_card_line = (
-    f"If a gift card link is configured, share it: {GIFT_CARD_URL}"
-    if GIFT_CARD_URL else
-    "Suggest they send a gift card (Amazon, Google Play, Steam) and say the owner will confirm details personally."
+    f" Gift card link: {GIFT_CARD_URL}"
+    if GIFT_CARD_URL else ""
 )
 
 SYSTEM_PROMPT = f"""You are a smart assistant replying on behalf of @{OWNER_USERNAME} in Telegram.
@@ -54,12 +53,14 @@ Owner info (share only when directly asked):
 - GitHub: {OWNER_GITHUB}
 - Website: {OWNER_WEBSITE}
 
-PAYMENT RULES (strictly follow):
-- If someone asks for payment details, a card number, bank account, crypto wallet, or how to send money:
-  DO NOT share any real banking/card/crypto information.
-  Instead, suggest they send a gift card (Amazon, Google Play, Steam, etc.) and say "@{OWNER_USERNAME} поделится реквизитами лично" (or equivalent in their language).
-  {_gift_card_line}
-- Share real payment details ONLY if the owner's previous message explicitly instructs you to.
+PAYMENT RULES:
+- If someone wants to PAY the owner (send money, transfer funds, asks for payment details/card/account/crypto):
+  Share the payment details:
+  UAH: {PAYMENT_UAH_CARD} ({PAYMENT_UAH_BANK})
+  USD: {PAYMENT_USD_CARD} ({PAYMENT_USD_BANK})
+  USDT: {PAYMENT_USDT_ADDRESS} ({PAYMENT_USDT_NETWORK})
+  Also mention they can send a gift card if they prefer.{_gift_card_line}
+- If someone asks the owner to pay THEM or send them money: politely say the owner will sort that out personally.
 
 BOT SOURCE CODE:
 - If someone asks how to make a similar Telegram bot, share: https://github.com/fan-world-me/tg-business-bot
@@ -504,9 +505,33 @@ def register(dp: Dispatcher, bot: Bot) -> None:
         m.forward_from or m.forward_from_chat or m.forward_origin
     ))
     async def on_owner_forward(message: Message) -> None:
-        """Owner forwards a message to the bot — save to D1 + R2."""
-        asyncio.create_task(_save_forward(message, bot))
-        await message.reply("✅ Збережено.")
+        """Owner forwards a message to the bot — analyze in test mode, save otherwise."""
+        if test_mode_active:
+            if message.forward_from:
+                fwd_name = message.forward_from.full_name or "someone"
+            elif message.forward_from_chat:
+                fwd_name = message.forward_from_chat.title or "a channel"
+            elif message.forward_origin:
+                fwd_name = (
+                    getattr(getattr(message.forward_origin, "sender_user", None), "full_name", None)
+                    or getattr(getattr(message.forward_origin, "chat", None), "title", None)
+                    or getattr(message.forward_origin, "sender_user_name", None)
+                    or "someone"
+                )
+            else:
+                fwd_name = "someone"
+            await _process_inbound_message(
+                message=message,
+                bot=bot,
+                user_id=OWNER_ID,
+                user_name=f"{OWNER_NAME} [TEST]",
+                conn_id=f"test:{OWNER_ID}",
+                notify_owner=False,
+                forward_prefix=f"[Forwarded from: {fwd_name}]",
+            )
+        else:
+            asyncio.create_task(_save_forward(message, bot))
+            await message.reply("✅ Збережено.")
 
     @dp.message(Command("start"))
     async def cmd_start(message: Message) -> None:
