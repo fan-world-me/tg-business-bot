@@ -19,6 +19,7 @@ PAYMENT_USD_CARD: str = os.getenv("PAYMENT_USD_CARD", "")
 PAYMENT_USD_BANK: str = os.getenv("PAYMENT_USD_BANK", "")
 PAYMENT_USDT_ADDRESS: str = os.getenv("PAYMENT_USDT_ADDRESS", "")
 PAYMENT_USDT_NETWORK: str = os.getenv("PAYMENT_USDT_NETWORK", "")
+GIFT_CARD_URL: str = os.getenv("GIFT_CARD_URL", "")
 
 # Cloudflare
 CF_ACCOUNT_ID: str = os.environ["CLOUDFLARE_ACCOUNT_ID"]
