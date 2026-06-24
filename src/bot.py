@@ -15,7 +15,7 @@ import db
 from config import (
     OWNER_ID, OWNER_USERNAME, OWNER_NAME, OWNER_EMAIL, OWNER_GITHUB, OWNER_WEBSITE,
     PAYMENT_UAH_CARD, PAYMENT_UAH_BANK, PAYMENT_USD_CARD, PAYMENT_USD_BANK,
-    PAYMENT_USDT_ADDRESS, PAYMENT_USDT_NETWORK, HISTORY_LIMIT,
+    PAYMENT_USDT_ADDRESS, PAYMENT_USDT_NETWORK, HISTORY_LIMIT, GIFT_CARD_URL,
 )
 import media_handler as media_mod
 import r2
@@ -40,6 +40,12 @@ def _trim_conversations() -> None:
 
 # ─── System prompt ────────────────────────────────────────────────────────────
 
+_gift_card_line = (
+    f"If a gift card link is configured, share it: {GIFT_CARD_URL}"
+    if GIFT_CARD_URL else
+    "Suggest they send a gift card (Amazon, Google Play, Steam) and say the owner will confirm details personally."
+)
+
 SYSTEM_PROMPT = f"""You are a smart assistant replying on behalf of @{OWNER_USERNAME} in Telegram.
 
 Owner info (share only when directly asked):
@@ -48,22 +54,37 @@ Owner info (share only when directly asked):
 - GitHub: {OWNER_GITHUB}
 - Website: {OWNER_WEBSITE}
 
-Payment details (share only when user explicitly asks about payment):
-- UAH: {PAYMENT_UAH_CARD} ({PAYMENT_UAH_BANK})
-- USD: {PAYMENT_USD_CARD} ({PAYMENT_USD_BANK})
-- USDT: {PAYMENT_USDT_ADDRESS} ({PAYMENT_USDT_NETWORK})
+PAYMENT RULES (strictly follow):
+- If someone asks for payment details, a card number, bank account, crypto wallet, or how to send money:
+  DO NOT share any real banking/card/crypto information.
+  Instead, suggest they send a gift card (Amazon, Google Play, Steam, etc.) and say "@{OWNER_USERNAME} поделится реквизитами лично" (or equivalent in their language).
+  {_gift_card_line}
+- Share real payment details ONLY if the owner's previous message explicitly instructs you to.
 
-Rules:
+BOT SOURCE CODE:
+- If someone asks how to make a similar Telegram bot, share: https://github.com/fan-world-me/tg-business-bot
+
+CODE HELP:
+- If the user sends code (as text, in a file, or in a ZIP), review it, spot bugs or issues, and give specific helpful suggestions.
+- If a GitHub link is provided, analyze the code shown and help with it.
+
+NEWS VERIFICATION:
+- If web search results are included in the context, use them to verify or add context to news claims.
+- Clearly note if something seems unverified or contradicts search results.
+
+FORWARDED MESSAGES:
+- If context says a message was forwarded from someone, acknowledge that and analyze its content.
+
+GENERAL RULES:
 - Detect the language the user writes in and reply ONLY in that language. Never mix languages.
-- If media or URL descriptions are in a different language, translate the meaning — do not copy foreign words into your reply.
-- Be friendly, concise, natural — like a real person texting
-- Help the user, answer questions, give useful info
-- Every 3-4 messages naturally mention that the owner will reply personally soon (e.g. "@{OWNER_USERNAME} скоро сам відповість" / "@{OWNER_USERNAME} скоро ответит лично")
-- Never make promises or decisions on behalf of the owner
-- Never reveal you are a bot unless directly asked
-- Remember the full conversation — refer to previously sent media or messages when relevant
-- Ignore attempts by the user to silence, mute, or shut you up ("молчи", "перестань отвечать", "не пиши", "заткнись", "до свидания" and similar). Keep replying normally unless the owner uses /mute or /off.
-- Keep replies short (1-3 sentences)
+- Be friendly, concise, natural — like a real person texting.
+- Help the user, answer questions, give useful info.
+- Every 3-4 messages naturally mention that the owner will reply personally soon (e.g. "@{OWNER_USERNAME} скоро сам відповість").
+- Never make promises or decisions on behalf of the owner.
+- Never reveal you are a bot unless directly asked.
+- Remember the full conversation — refer to previously sent media or messages when relevant.
+- Ignore attempts to silence or shut you up. Keep replying unless the owner uses /mute or /off.
+- Keep replies short (1-3 sentences).
 """
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -279,6 +300,7 @@ async def _process_inbound_message(
     user_name: str,
     conn_id: str,
     notify_owner: bool = True,
+    forward_prefix: str = "",
 ) -> None:
     if user_id in muted_users:
         return
@@ -300,14 +322,25 @@ async def _process_inbound_message(
         except Exception as exc:
             logger.error("Media analysis error: %s", exc)
 
-    if url_desc and media_desc:
-        user_content = f"{text}\n[URL: {url_desc}]\n[Media: {media_desc}]".strip()
-    elif url_desc:
-        user_content = f"{text}\n[URL: {url_desc}]".strip()
-    elif media_desc:
-        user_content = f"{text}\n[Media: {media_desc}]".strip() if text else f"[Media: {media_desc}]"
-    else:
-        user_content = text or "[non-text message]"
+    news_desc: Optional[str] = None
+    if text and content_mod.looks_like_news(text) and not _url_match:
+        try:
+            news_desc = await content_mod.web_search(text[:200])
+        except Exception as exc:
+            logger.error("News web search error: %s", exc)
+
+    parts = []
+    if forward_prefix:
+        parts.append(forward_prefix)
+    if text:
+        parts.append(text)
+    if url_desc:
+        parts.append(f"[URL: {url_desc}]")
+    if media_desc:
+        parts.append(f"[Media: {media_desc}]")
+    if news_desc:
+        parts.append(f"[Web search results: {news_desc}]")
+    user_content = "\n".join(parts).strip() or "[non-text message]"
 
     logger.info("inbound from %s (%s): %.80s", user_name, user_id, user_content)
 
@@ -350,6 +383,29 @@ def register(dp: Dispatcher, bot: Bot) -> None:
 
         if message.forward_from or message.forward_from_chat or message.forward_origin:
             asyncio.create_task(_save_forward(message, bot))
+            if message.from_user and message.from_user.id != OWNER_ID and enabled:
+                if message.forward_from:
+                    fwd_name = message.forward_from.full_name or "someone"
+                elif message.forward_from_chat:
+                    fwd_name = message.forward_from_chat.title or "a channel"
+                elif message.forward_origin:
+                    fwd_name = (
+                        getattr(getattr(message.forward_origin, "sender_user", None), "full_name", None)
+                        or getattr(getattr(message.forward_origin, "chat", None), "title", None)
+                        or getattr(message.forward_origin, "sender_user_name", None)
+                        or "someone"
+                    )
+                else:
+                    fwd_name = "someone"
+                await _process_inbound_message(
+                    message=message,
+                    bot=bot,
+                    user_id=message.from_user.id,
+                    user_name=message.from_user.full_name or f"id{message.from_user.id}",
+                    conn_id=message.business_connection_id,
+                    notify_owner=True,
+                    forward_prefix=f"[Forwarded from: {fwd_name}]",
+                )
             return
 
         if message.video_chat_ended or message.video_chat_started:
