@@ -34,6 +34,21 @@ YOUTUBE_RE = re.compile(
     r"^https?://(?:www\.)?(?:youtube\.com/watch\?v=[^&\s]+|youtu\.be/[^?\s]+|youtube\.com/shorts/[^?\s]+)",
     re.IGNORECASE,
 )
+GITHUB_BLOB_RE = re.compile(
+    r"https://github\.com/([^/]+)/([^/]+)/blob/([^/]+)/(.+)",
+    re.IGNORECASE,
+)
+GITHUB_REPO_RE = re.compile(
+    r"https://github\.com/([^/\s?#]+)/([^/\s?#]+)/?(?:[?#].*)?$",
+    re.IGNORECASE,
+)
+NEWS_KEYWORDS_RE = re.compile(
+    r"\b(сталось|загинул|вибух|атака|новини|breaking|explosion|attack|killed|"
+    r"arrested|заарештував|повідомляє|повідомляють|джерела|источники|виявилось|"
+    r"выяснилось|за даними|по данным|офіційно|официально|стало відомо|стало известно|"
+    r"оголошено|объявлено|розслідування|расследование|підтвердили|подтвердили)\b",
+    re.IGNORECASE,
+)
 CODE_EXTS = {
     ".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java", ".kt", ".c", ".h",
     ".cpp", ".hpp", ".cs", ".php", ".rb", ".swift", ".sh", ".bash", ".ps1", ".sql",
@@ -307,6 +322,81 @@ def _analyze_local_file(path: str, filename: str | None, mime_type: str | None) 
     return None
 
 
+def looks_like_news(text: str) -> bool:
+    """Return True if the text seems to be a news claim worth web-searching."""
+    return len(text) >= 30 and bool(NEWS_KEYWORDS_RE.search(text))
+
+
+async def web_search(query: str, max_results: int = 3) -> Optional[str]:
+    """Search the web via DuckDuckGo HTML and return brief snippets."""
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            r = await client.get(
+                "https://html.duckduckgo.com/html/",
+                params={"q": query},
+                headers={"User-Agent": "Mozilla/5.0 (compatible; Bot/1.0)"},
+            )
+            r.raise_for_status()
+            soup = BeautifulSoup(r.content, "html.parser")
+            snippets = []
+            for el in soup.select(".result__snippet")[:max_results]:
+                t = el.get_text(" ", strip=True)
+                if t:
+                    snippets.append(t[:300])
+            return "\n\n".join(snippets) if snippets else None
+    except Exception as exc:
+        logger.error("Web search failed: %s", exc)
+        return None
+
+
+async def _analyze_github_url(url: str) -> Optional[str]:
+    """Fetch code/README from a GitHub URL and return its text content."""
+    blob_match = GITHUB_BLOB_RE.match(url)
+    if blob_match:
+        owner, repo, branch, filepath = blob_match.groups()
+        raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{filepath}"
+        try:
+            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+                r = await client.get(raw_url)
+                r.raise_for_status()
+                text = _decode_bytes(r.content)
+                return _limit_text(f"GitHub file {filepath}:\n\n{text}")
+        except Exception as exc:
+            logger.error("GitHub blob fetch failed: %s", exc)
+            return None
+
+    repo_match = GITHUB_REPO_RE.match(url)
+    if repo_match:
+        owner, repo = repo_match.groups()
+        parts = []
+        try:
+            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+                api_url = f"https://api.github.com/repos/{owner}/{repo}"
+                r = await client.get(api_url, headers={"Accept": "application/vnd.github+json"})
+                if r.status_code == 200:
+                    data = r.json()
+                    desc = data.get("description") or ""
+                    lang = data.get("language") or ""
+                    stars = data.get("stargazers_count", 0)
+                    parts.append(f"Repo: {owner}/{repo}")
+                    if desc:
+                        parts.append(f"Description: {desc}")
+                    if lang:
+                        parts.append(f"Language: {lang}")
+                    parts.append(f"Stars: {stars}")
+
+                readme_url = f"https://api.github.com/repos/{owner}/{repo}/readme"
+                rr = await client.get(readme_url, headers={"Accept": "application/vnd.github.raw+json"})
+                if rr.status_code == 200:
+                    readme_text = _limit_text(rr.text, limit=3000)
+                    parts.append(f"\nREADME:\n{readme_text}")
+        except Exception as exc:
+            logger.error("GitHub repo fetch failed: %s", exc)
+        return "\n".join(parts) if parts else None
+
+    return None
+
+
 async def _youtube_oembed(url: str) -> Optional[str]:
     """Fetch YouTube title + description via oEmbed as a fallback (no API key needed)."""
     try:
@@ -346,6 +436,10 @@ async def analyze_url(url: str) -> Optional[str]:
         except Exception as exc:
             logger.error("YouTube Gemini analysis failed: %s — trying oEmbed", exc)
             return await _youtube_oembed(url)
+    if GITHUB_BLOB_RE.match(url) or GITHUB_REPO_RE.match(url):
+        result = await _analyze_github_url(url)
+        if result:
+            return result
     path = None
     try:
         path, content_type, suffix = await _download_url(url)
