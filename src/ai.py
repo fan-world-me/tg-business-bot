@@ -79,8 +79,15 @@ def _nvidia_headers() -> dict:
     return {"Authorization": f"Bearer {NVIDIA_API_KEY}", "Content-Type": "application/json"}
 
 
+def _no_think(model: str) -> dict:
+    """Disable thinking/reasoning mode for models that support it (e.g. Qwen3)."""
+    if "qwen" in model.lower():
+        return {"chat_template_kwargs": {"thinking": False}}
+    return {}
+
+
 async def _groq_chat_one(messages: list[dict], model: str) -> str:
-    body = {"model": model, "messages": messages, "max_tokens": MAX_TOKENS, "temperature": 0.7}
+    body = {"model": model, "messages": messages, "max_tokens": MAX_TOKENS, "temperature": 0.7, **_no_think(model)}
     return await _post("https://api.groq.com/openai/v1/chat/completions", _groq_headers(), body)
 
 
@@ -154,7 +161,7 @@ async def groq_vision(image_path: str, prompt: str = "Describe this image briefl
     ]}]
 
     async def _call(m: str) -> str:
-        body = {"model": m, "messages": messages, "max_tokens": MAX_TOKENS}
+        body = {"model": m, "messages": messages, "max_tokens": MAX_TOKENS, **_no_think(m)}
         return await _post("https://api.groq.com/openai/v1/chat/completions", _groq_headers(), body)
 
     models = models or GROQ_VISION_MODELS
