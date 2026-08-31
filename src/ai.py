@@ -1,8 +1,11 @@
 """AI calls: Groq primary, NVIDIA fallback."""
 import logging
+import re
 from typing import Any
 
 import httpx
+
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 
 from config import (
     GEMINI_API_KEY,
@@ -37,7 +40,8 @@ async def _post(url: str, headers: dict, body: dict) -> str:
             text = " ".join(
                 part.get("text", "") for part in text if isinstance(part, dict)
             )
-        return str(text).strip()
+        text = _THINK_RE.sub("", str(text)).strip()
+        return text
 
 
 def _extract_http_error_text(resp: httpx.Response) -> str:
