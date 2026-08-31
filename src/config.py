@@ -50,7 +50,7 @@ def _model_list(env_name: str, default: str) -> list[str]:
 # Text chat: tried in order, first provider+model that succeeds wins.
 GROQ_TEXT_MODELS: list[str] = _model_list("GROQ_TEXT_MODELS", "qwen/qwen3.6-27b,qwen/qwen3.8-27b")
 NVIDIA_TEXT_MODELS: list[str] = _model_list(
-    "NVIDIA_TEXT_MODELS", "meta/llama-3.1-70b-instruct,meta/llama-3.1-405b-instruct"
+    "NVIDIA_TEXT_MODELS", "nvidia/nemotron-3-super-120b-a12b,nvidia/nemotron-3-ultra-550b-a55b"
 )
 
 # Vision (photo/sticker) chat
