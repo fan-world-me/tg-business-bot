@@ -80,9 +80,11 @@ def _nvidia_headers() -> dict:
 
 
 def _no_think(model: str) -> dict:
-    """Disable thinking/reasoning mode for models that support it (e.g. Qwen3)."""
+    """Disable thinking/reasoning mode for Qwen3 models on Groq (reasoning_effort=none).
+    Do NOT pass to NVIDIA endpoints — different API.
+    """
     if "qwen" in model.lower():
-        return {"chat_template_kwargs": {"thinking": False}}
+        return {"reasoning_effort": "none"}
     return {}
 
 
