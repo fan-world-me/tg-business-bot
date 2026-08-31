@@ -38,11 +38,33 @@ NVIDIA_API_BASE_URL: str = os.getenv(
     "NVIDIA_API_BASE_URL",
     "https://integrate.api.nvidia.com/v1/chat/completions",
 )
-NVIDIA_VIDEO_MODEL: str = os.getenv(
-    "NVIDIA_VIDEO_MODEL",
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
-)
 GEMINI_VIDEO_MODEL: str = os.getenv("GEMINI_VIDEO_MODEL", "gemini-2.0-flash")
+
+
+def _model_list(env_name: str, default: str) -> list[str]:
+    """Comma-separated list of models, in priority order (primary first, then backups)."""
+    raw = os.getenv(env_name, default)
+    return [m.strip() for m in raw.split(",") if m.strip()]
+
+
+# Text chat: tried in order, first provider+model that succeeds wins.
+GROQ_TEXT_MODELS: list[str] = _model_list("GROQ_TEXT_MODELS", "qwen/qwen3.6-27b,qwen/qwen3.8-27b")
+NVIDIA_TEXT_MODELS: list[str] = _model_list(
+    "NVIDIA_TEXT_MODELS", "meta/llama-3.1-70b-instruct,meta/llama-3.1-405b-instruct"
+)
+
+# Vision (photo/sticker) chat
+GROQ_VISION_MODELS: list[str] = _model_list("GROQ_VISION_MODELS", "qwen/qwen3.6-27b")
+NVIDIA_VISION_MODELS: list[str] = _model_list(
+    "NVIDIA_VISION_MODELS", "microsoft/phi-3.5-vision-instruct,meta/llama-3.2-90b-vision-instruct"
+)
+
+# Video/GIF/video-note analysis (NVIDIA only)
+NVIDIA_VIDEO_MODELS: list[str] = _model_list(
+    "NVIDIA_VIDEO_MODELS",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning,meta/llama-3.2-90b-vision-instruct",
+)
+NVIDIA_VIDEO_MODEL: str = NVIDIA_VIDEO_MODELS[0]  # kept for backward compatibility
 
 # Cloudflare R2
 R2_ACCOUNT_ID: str = os.getenv("R2_ACCOUNT_ID", CF_ACCOUNT_ID)

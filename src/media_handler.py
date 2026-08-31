@@ -11,7 +11,7 @@ from aiogram.types import Message
 
 import content_handler as content_mod
 from ai import groq_whisper, groq_vision, nvidia_multimodal
-from config import MAX_FILE_MB, MAX_VIDEO_MB, MAX_DOC_MB, NVIDIA_VIDEO_MODEL
+from config import MAX_FILE_MB, MAX_VIDEO_MB, MAX_DOC_MB, NVIDIA_VIDEO_MODELS
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +123,7 @@ async def _vision(image_path: str, prompt: str) -> str:
             {"type": "text", "text": prompt},
             {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
         ]}]
-        return _compact_summary(await nvidia_multimodal(messages, model="microsoft/phi-3.5-vision-instruct"))
+        return _compact_summary(await nvidia_multimodal(messages))
 
 
 async def _nvidia_video(video_path: str, prompt: str, use_audio: bool = True) -> str:
@@ -137,7 +137,7 @@ async def _nvidia_video(video_path: str, prompt: str, use_audio: bool = True) ->
         ],
     }]
     extra_body = {"mm_processor_kwargs": {"use_audio_in_video": use_audio}}
-    return _compact_summary(await nvidia_multimodal(messages, model=NVIDIA_VIDEO_MODEL, extra_body=extra_body))
+    return _compact_summary(await nvidia_multimodal(messages, models=NVIDIA_VIDEO_MODELS, extra_body=extra_body))
 
 
 async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
