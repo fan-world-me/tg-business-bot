@@ -165,10 +165,28 @@ def _text_from_xlsx(path: str) -> str:
 
 
 def _text_from_blend(path: str) -> str:
-    """Extract basic metadata from a Blender .blend file without any external library."""
+    """Extract basic metadata from a Blender .blend file without any external library.
+
+    Blender 3.0+ saves files gzip-compressed by default (magic: \\x1f\\x8b).
+    We decompress on-the-fly to reach the real BLENDER header.
+    """
+    import gzip
+
     MAGIC = b"BLENDER"
+
     with open(path, "rb") as f:
-        header = f.read(12)
+        raw_start = f.read(2)
+
+    # Detect gzip compression
+    if raw_start == b"\x1f\x8b":
+        try:
+            with gzip.open(path, "rb") as gz:
+                header = gz.read(12)
+        except Exception as exc:
+            return f"[.blend file is compressed but could not be decompressed: {exc}]"
+    else:
+        with open(path, "rb") as f:
+            header = f.read(12)
 
     if len(header) < 12 or not header.startswith(MAGIC):
         return "[Not a valid .blend file]"
@@ -185,11 +203,12 @@ def _text_from_blend(path: str) -> str:
 
     bits = ptr_size * 8
     endian_label = "little-endian" if endian == "little" else "big-endian"
+    compressed = " (compressed)" if raw_start == b"\x1f\x8b" else ""
 
     return (
         f"Blender file info:\n"
         f"- Blender version: {version}\n"
-        f"- Architecture: {bits}-bit ({endian_label})\n"
+        f"- Architecture: {bits}-bit ({endian_label}){compressed}\n"
         f"(Geometry, materials, and scene data cannot be extracted without Blender)"
     )
 
