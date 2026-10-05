@@ -194,7 +194,7 @@ def _text_from_blend(path: str) -> str:
     )
 
 
-(zf: zipfile.ZipFile) -> list[str]:
+def _safe_zip_names(zf: zipfile.ZipFile) -> list[str]:
     """Return all file names (up to MAX_ARCHIVE_FILES), regardless of uncompressed size."""
     names: list[str] = []
     for info in zf.infolist():
