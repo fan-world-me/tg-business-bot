@@ -82,15 +82,27 @@ def _nvidia_headers() -> dict:
 def _no_think(model: str) -> dict:
     """Disable / suppress reasoning tokens for Groq models.
 
-    - qwen/*   → reasoning_effort=none  (fully disables thinking, per Groq docs)
+    - qwen/*        → reasoning_effort=none  (fully disables thinking, per Groq docs)
     - openai/gpt-oss-* → reasoning_effort is not supported with "none"; omit it so
       the model uses its default (reasoning goes to the separate `reasoning` field,
       not into `content`, so _THINK_RE already strips any leakage).
-    Do NOT pass these params to NVIDIA endpoints — different API.
+    Do NOT pass these params to NVIDIA endpoints — different API (see _nvidia_chat_one).
     """
     m = model.lower()
     if "qwen" in m:
         return {"reasoning_effort": "none"}
+    return {}
+
+
+def _nvidia_extra(model: str) -> dict:
+    """Extra body params for NVIDIA chat completions.
+
+    nemotron-3-ultra and nemotron-3.5-lightning support enable_thinking via
+    chat_template_kwargs. Disable it to get plain answers without <think> blocks.
+    """
+    m = model.lower()
+    if "nemotron" in m and ("ultra" in m or "lightning" in m):
+        return {"chat_template_kwargs": {"enable_thinking": False}}
     return {}
 
 
@@ -100,7 +112,7 @@ async def _groq_chat_one(messages: list[dict], model: str) -> str:
 
 
 async def _nvidia_chat_one(messages: list[dict], model: str) -> str:
-    body = {"model": model, "messages": messages, "max_tokens": MAX_TOKENS, "temperature": 0.7}
+    body = {"model": model, "messages": messages, "max_tokens": MAX_TOKENS, "temperature": 0.7, **_nvidia_extra(model)}
     return await _post(NVIDIA_API_BASE_URL, _nvidia_headers(), body)
 
 

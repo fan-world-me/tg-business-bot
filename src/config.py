@@ -53,10 +53,10 @@ GROQ_TEXT_MODELS: list[str] = _model_list(
     "GROQ_TEXT_MODELS",
     "qwen/qwen3.8-27b,openai/gpt-oss-120b,openai/gpt-oss-20b",
 )
-# NVIDIA: nemotron-ultra (flagship) → nemotron-super (lighter) → cosmos3-nano-reasoner (smallest).
+# NVIDIA: nemotron-ultra (550B, 1M ctx) → nemotron-lightning (30B, fast) as backup.
 NVIDIA_TEXT_MODELS: list[str] = _model_list(
     "NVIDIA_TEXT_MODELS",
-    "nvidia/llama-3.1-nemotron-ultra-253b-v1,nvidia/llama-3.3-nemotron-super-49b-v1,nvidia/cosmos3-nano-reasoner",
+    "nvidia/nemotron-3-ultra-550b-a55b,nvidia/nemotron-3.5-lightning-30b-a3b",
 )
 
 # Vision (photo/sticker): image_url format.

@@ -353,6 +353,12 @@ async def _process_inbound_message(
         parts.append(f"[Web search results: {news_desc}]")
     user_content = "\n".join(parts).strip() or "[non-text message]"
 
+    # Groq models have a ~131K token context but HTTP payload limit is ~6 MB.
+    # Large ZIP/code files can trigger 413. Hard-cap user_content to avoid it.
+    MAX_USER_CONTENT = 8000
+    if len(user_content) > MAX_USER_CONTENT:
+        user_content = user_content[:MAX_USER_CONTENT] + "\n\n[...truncated]"
+
     logger.info("inbound from %s (%s): %.80s", user_name, user_id, user_content)
 
     if conn_id not in conversations:
