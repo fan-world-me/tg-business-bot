@@ -373,7 +373,11 @@ async def _process_inbound_message(
         return
 
     conversations[conn_id].append({"role": "assistant", "content": reply})
-    await message.answer(reply)
+    try:
+        await message.answer(reply)
+    except Exception as exc:
+        logger.error("message.answer failed (conn_id=%s): %s", conn_id, exc)
+        return
     try:
         await db.log_message(conn_id, user_id, user_name, user_content, reply)
         logger.info("conversation saved: conn_id=%s user_id=%s", conn_id, user_id)
@@ -419,11 +423,14 @@ def register(dp: Dispatcher, bot: Bot) -> None:
             return
 
         if message.video_chat_ended or message.video_chat_started:
-            if message.from_user.id != OWNER_ID:
+            if message.from_user and message.from_user.id != OWNER_ID:
                 await message.answer(f"@{OWNER_USERNAME} скоро відповість! 📞")
             return
 
         if not enabled:
+            return
+
+        if not message.from_user:
             return
 
         if message.from_user.id == OWNER_ID:

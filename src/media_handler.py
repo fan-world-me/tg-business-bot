@@ -288,8 +288,9 @@ async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
         try:
             await bot.download(m.document.file_id, destination=path)
             if ext == ".gif":
-                async with VIDEO_ANALYSIS_SEMAPHORE:
-                    return await _nvidia_video(path, "Describe this GIF image in 1 short sentence. Do not provide reasoning.", use_audio=False)
+                # GIF sent as document is a real GIF file, not MP4 — use vision instead of
+                # _nvidia_video (which encodes as video/mp4 and would be rejected).
+                return await _vision(path, "Describe this GIF image in 1 short sentence. Do not provide reasoning.")
             return await _vision(path, "Describe this image briefly.")
         except Exception as exc:
             logger.error("Document image analysis failed: %s", exc)

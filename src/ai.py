@@ -80,10 +80,16 @@ def _nvidia_headers() -> dict:
 
 
 def _no_think(model: str) -> dict:
-    """Disable thinking/reasoning mode for Qwen3 models on Groq (reasoning_effort=none).
-    Do NOT pass to NVIDIA endpoints — different API.
+    """Disable / suppress reasoning tokens for Groq models.
+
+    - qwen/*   → reasoning_effort=none  (fully disables thinking, per Groq docs)
+    - openai/gpt-oss-* → reasoning_effort is not supported with "none"; omit it so
+      the model uses its default (reasoning goes to the separate `reasoning` field,
+      not into `content`, so _THINK_RE already strips any leakage).
+    Do NOT pass these params to NVIDIA endpoints — different API.
     """
-    if "qwen" in model.lower():
+    m = model.lower()
+    if "qwen" in m:
         return {"reasoning_effort": "none"}
     return {}
 
