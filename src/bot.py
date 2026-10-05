@@ -144,11 +144,12 @@ async def _get_reply(messages: list[dict]) -> Optional[str]:
 
 
 async def _notify_owner(bot: Bot, user_name: str, user_id: int, question: str, answer: str) -> None:
+    import html as _html
     text = (
         f"🤖 <b>Auto-reply sent</b>\n\n"
-        f"👤 {user_name} (<code>{user_id}</code>)\n"
-        f"💬 {question}\n\n"
-        f"📨 {answer}"
+        f"👤 {_html.escape(user_name)} (<code>{user_id}</code>)\n"
+        f"💬 {_html.escape(question)}\n\n"
+        f"📨 {_html.escape(answer)}"
     )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="🔇 Mute", callback_data=f"mute:{user_id}:{user_name}"),
