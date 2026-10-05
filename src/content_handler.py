@@ -164,7 +164,37 @@ def _text_from_xlsx(path: str) -> str:
     return "\n\n".join(parts)
 
 
-def _safe_zip_names(zf: zipfile.ZipFile) -> list[str]:
+def _text_from_blend(path: str) -> str:
+    """Extract basic metadata from a Blender .blend file without any external library."""
+    MAGIC = b"BLENDER"
+    with open(path, "rb") as f:
+        header = f.read(12)
+
+    if len(header) < 12 or not header.startswith(MAGIC):
+        return "[Not a valid .blend file]"
+
+    ptr_size = 8 if header[7:8] == b"-" else 4  # '-' = 64-bit, '_' = 32-bit
+    endian = "little" if header[8:9] == b"v" else "big"
+    ver_raw = header[9:12].decode("ascii", errors="replace")
+    try:
+        ver_int = int(ver_raw)
+        major, minor, patch = ver_int // 100, (ver_int % 100) // 10, ver_int % 10
+        version = f"{major}.{minor}.{patch}"
+    except ValueError:
+        version = ver_raw
+
+    bits = ptr_size * 8
+    endian_label = "little-endian" if endian == "little" else "big-endian"
+
+    return (
+        f"Blender file info:\n"
+        f"- Blender version: {version}\n"
+        f"- Architecture: {bits}-bit ({endian_label})\n"
+        f"(Geometry, materials, and scene data cannot be extracted without Blender)"
+    )
+
+
+(zf: zipfile.ZipFile) -> list[str]:
     """Return all file names (up to MAX_ARCHIVE_FILES), regardless of uncompressed size."""
     names: list[str] = []
     for info in zf.infolist():
@@ -267,6 +297,8 @@ def _doc_kind(filename: str | None, mime_type: str | None) -> str | None:
     suffix = _suffix_from_name(filename)
     if suffix in {".pdf", ".docx", ".pptx", ".xlsx", ".zip"}:
         return suffix.lstrip(".")
+    if suffix == ".blend":
+        return "blend"
     if mime_type:
         if mime_type == "application/pdf":
             return "pdf"
@@ -314,6 +346,8 @@ def _analyze_local_file(path: str, filename: str | None, mime_type: str | None) 
             return _limit_text(_text_from_xlsx(path))
         if kind == "zip":
             return _limit_text(_text_from_zip(path), MAX_TEXT_CHARS * 2)
+        if kind == "blend":
+            return _text_from_blend(path)
         if kind in {"text", "code"}:
             return _limit_text(_text_from_plain(path))
     except Exception as exc:

@@ -51,6 +51,8 @@ def _doc_kind(filename: str | None, mime_type: str | None) -> str | None:
         suffix = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
         if suffix in {"pdf", "docx", "pptx", "xlsx", "zip"}:
             return suffix
+        if suffix == "blend":
+            return "blend"
         if suffix in {
             "py", "js", "ts", "tsx", "jsx", "go", "rs", "java", "kt", "c", "h",
             "cpp", "hpp", "cs", "php", "rb", "swift", "sh", "bash", "ps1", "sql",

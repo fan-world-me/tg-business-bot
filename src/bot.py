@@ -125,7 +125,7 @@ def _has_media(m: Message) -> bool:
          )) or
         doc_kind in {"image", "video", "audio"} or
         (m.document and m.document.file_name and m.document.file_name.lower().endswith(
-            (".pdf", ".docx", ".pptx", ".xlsx", ".zip", ".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java",
+            (".pdf", ".docx", ".pptx", ".xlsx", ".zip", ".blend", ".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java",
              ".kt", ".c", ".h", ".cpp", ".hpp", ".cs", ".php", ".rb", ".swift", ".sh", ".bash", ".ps1", ".sql",
              ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".md", ".txt", ".html", ".css", ".scss", ".xml")
         ))
