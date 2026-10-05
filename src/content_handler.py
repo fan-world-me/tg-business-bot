@@ -177,6 +177,8 @@ def _text_from_blend(path: str) -> str:
     with open(path, "rb") as f:
         raw_start = f.read(2)
 
+    logger.info("blend: raw_start=%s path=%s size=%d", raw_start.hex(), path, os.path.getsize(path))
+
     # Detect gzip compression
     if raw_start == b"\x1f\x8b":
         try:
@@ -188,8 +190,10 @@ def _text_from_blend(path: str) -> str:
         with open(path, "rb") as f:
             header = f.read(12)
 
+    logger.info("blend: header=%s", header.hex())
+
     if len(header) < 12 or not header.startswith(MAGIC):
-        return "[Not a valid .blend file]"
+        return f"[Not a valid .blend file (header: {header[:7]})]"
 
     ptr_size = 8 if header[7:8] == b"-" else 4  # '-' = 64-bit, '_' = 32-bit
     endian = "little" if header[8:9] == b"v" else "big"
