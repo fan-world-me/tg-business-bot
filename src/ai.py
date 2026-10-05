@@ -10,6 +10,7 @@ _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 from config import (
     GEMINI_API_KEY,
     GEMINI_VIDEO_MODEL,
+    GEMINI_VIDEO_MODEL_FALLBACK,
     GROQ_API_KEY,
     GROQ_TEXT_MODELS,
     GROQ_VISION_MODELS,
@@ -192,6 +193,12 @@ async def groq_vision(image_path: str, prompt: str = "Describe this image briefl
 async def gemini_youtube_video(url: str, prompt: str, model: str = GEMINI_VIDEO_MODEL) -> str:
     if not GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY is not configured")
+
+    # Try primary model first, then fallback — both are full Gemini models.
+    models_to_try = [model]
+    if GEMINI_VIDEO_MODEL_FALLBACK and GEMINI_VIDEO_MODEL_FALLBACK != model:
+        models_to_try.append(GEMINI_VIDEO_MODEL_FALLBACK)
+
     body = {
         "contents": [{
             "parts": [
@@ -200,26 +207,35 @@ async def gemini_youtube_video(url: str, prompt: str, model: str = GEMINI_VIDEO_
             ]
         }]
     }
-    async with httpx.AsyncClient(timeout=120) as client:
-        resp = await client.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-            params={"key": GEMINI_API_KEY},
-            headers={"Content-Type": "application/json"},
-            json=body,
-        )
-        if resp.status_code == 429:
-            raise GeminiRateLimitError(_extract_http_error_text(resp) or "Gemini rate limit reached")
-        resp.raise_for_status()
-        payload = resp.json()
 
-    try:
-        candidates = payload.get("candidates", [])
-        if candidates:
-            parts = candidates[0].get("content", {}).get("parts", [])
-            texts = [p.get("text", "") for p in parts if "text" in p]
-            result = " ".join(texts).strip()
-            if result:
-                return result
-    except Exception as exc:
-        logger.error("Gemini response parse error: %s — payload: %s", exc, str(payload)[:500])
-    return str(payload).strip()
+    last_exc: Exception | None = None
+    for m in models_to_try:
+        try:
+            async with httpx.AsyncClient(timeout=120) as client:
+                resp = await client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent",
+                    params={"key": GEMINI_API_KEY},
+                    headers={"Content-Type": "application/json"},
+                    json=body,
+                )
+                if resp.status_code == 429:
+                    raise GeminiRateLimitError(_extract_http_error_text(resp) or "Gemini rate limit reached")
+                resp.raise_for_status()
+                payload = resp.json()
+
+            candidates = payload.get("candidates", [])
+            if candidates:
+                parts = candidates[0].get("content", {}).get("parts", [])
+                texts = [p.get("text", "") for p in parts if "text" in p]
+                result = " ".join(texts).strip()
+                if result:
+                    logger.info("Gemini youtube: %s succeeded", m)
+                    return result
+            return str(payload).strip()
+        except GeminiRateLimitError:
+            raise  # let caller handle 429 → oEmbed fallback
+        except Exception as exc:
+            logger.warning("Gemini youtube: %s failed (%s), trying next", m, exc)
+            last_exc = exc
+
+    raise last_exc or RuntimeError("All Gemini models failed")

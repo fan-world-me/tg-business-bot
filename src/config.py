@@ -38,7 +38,8 @@ NVIDIA_API_BASE_URL: str = os.getenv(
     "NVIDIA_API_BASE_URL",
     "https://integrate.api.nvidia.com/v1/chat/completions",
 )
-GEMINI_VIDEO_MODEL: str = os.getenv("GEMINI_VIDEO_MODEL", "gemini-2.0-flash")
+GEMINI_VIDEO_MODEL: str = os.getenv("GEMINI_VIDEO_MODEL", "gemini-3.5-flash")
+GEMINI_VIDEO_MODEL_FALLBACK: str = os.getenv("GEMINI_VIDEO_MODEL_FALLBACK", "gemini-3.5-flash-lite")
 
 
 def _model_list(env_name: str, default: str) -> list[str]:
@@ -65,10 +66,10 @@ GROQ_VISION_MODELS: list[str] = _model_list(
     "GROQ_VISION_MODELS",
     "qwen/qwen3.8-27b,openai/gpt-oss-20b",
 )
-# NVIDIA: nemotron-omni (omni, video+image) → cosmos3-nano-reasoner (image+video) → phi-3.5 (image only).
+# NVIDIA: nemotron-omni (omni, video+image) → cosmos3-nano-reasoner (image+video) → nemotron-nano-12b-v2-vl (image VLM, 2026).
 NVIDIA_VISION_MODELS: list[str] = _model_list(
     "NVIDIA_VISION_MODELS",
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning,nvidia/cosmos3-nano-reasoner,microsoft/phi-3.5-vision-instruct",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning,nvidia/cosmos3-nano-reasoner,nvidia/nemotron-nano-12b-v2-vl",
 )
 
 # Video/GIF/video-note analysis (NVIDIA only, video_url format).
