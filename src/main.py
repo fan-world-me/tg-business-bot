@@ -3,7 +3,6 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
-from aiogram.types import Update
 
 import db
 import bot as bot_module

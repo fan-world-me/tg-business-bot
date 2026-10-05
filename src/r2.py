@@ -1,7 +1,6 @@
 """Cloudflare R2 upload via S3-compatible API (AWS Signature V4)."""
 import hashlib
 import hmac
-import json
 import logging
 import tempfile
 from datetime import datetime, timezone

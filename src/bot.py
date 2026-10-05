@@ -599,6 +599,7 @@ def register(dp: Dispatcher, bot: Bot) -> None:
             elif message.forward_origin:
                 fwd_name = (
                     getattr(getattr(message.forward_origin, "sender_user", None), "full_name", None)
+                    or getattr(getattr(message.forward_origin, "sender_chat", None), "title", None)
                     or getattr(getattr(message.forward_origin, "chat", None), "title", None)
                     or getattr(message.forward_origin, "sender_user_name", None)
                     or "someone"
