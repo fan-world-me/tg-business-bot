@@ -165,56 +165,119 @@ def _text_from_xlsx(path: str) -> str:
 
 
 def _text_from_blend(path: str) -> str:
-    """Extract basic metadata from a Blender .blend file without any external library.
+    """Extract basic metadata from a Blender .blend file.
 
-    Blender 3.0+ saves files gzip-compressed by default (magic: \\x1f\\x8b).
-    We decompress on-the-fly to reach the real BLENDER header.
+    Compression:
+      uncompressed  — magic starts with BLENDER  (Blender 1.x–2.x, or manually saved)
+      gzip          — magic 1f 8b                (Blender 2.5–3.x default)
+      zstd          — magic 28 b5 2f fd          (Blender 4.0+ default)
+
+    Header layout:
+      Old (<=3.x): BLENDER + ptr(1) + endian(1) + ver(3)        e.g. BLENDER-v410
+      New (4.0+):  BLENDER + fmtver(2) + ptr(1) + pad(2) + endian(1) + ver(4)
+                                                                  e.g. BLENDER17-01v0500
+
+    File-format-version → Blender release mapping (new format only):
+      See: https://wiki.blender.org/wiki/Source/Architecture/blendfile_format
     """
     import gzip
 
-    MAGIC = b"BLENDER"
+    ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
+    GZIP_MAGIC = b"\x1f\x8b"
+    BLEND_MAGIC = b"BLENDER"
+
+    # file-format-version (2-digit str) → human release label
+    FMT_VER_MAP: dict[str, str] = {
+        "01": "1.x",
+        "02": "2.x",
+        "03": "2.5x",
+        "04": "2.6x",
+        "05": "2.7x",
+        "06": "2.79",
+        "07": "2.80–2.83",
+        "08": "2.90–2.93",
+        "09": "3.0–3.1",
+        "10": "3.2–3.3",
+        "11": "3.4",
+        "12": "3.5",
+        "13": "3.6",
+        "14": "3.6 LTS / 4.0 beta",
+        "15": "4.0",
+        "16": "4.1",
+        "17": "4.1 / 4.2",
+        "18": "4.2 LTS",
+        "19": "4.3",
+        "20": "4.4",
+        "21": "5.0+",
+    }
 
     with open(path, "rb") as f:
-        raw_start = f.read(2)
+        raw_start = f.read(4)
 
-    logger.info("blend: raw_start=%s path=%s size=%d", raw_start.hex(), path, os.path.getsize(path))
+    compressed_by: str | None = None
 
-    # Detect gzip compression
-    if raw_start == b"\x1f\x8b":
+    if raw_start[:4] == ZSTD_MAGIC:
+        compressed_by = "zstd"
+        try:
+            import zstandard as _zstd
+        except ImportError:
+            return "[.blend file uses zstd compression (Blender 4.0+) — zstandard library not installed]"
+        try:
+            with open(path, "rb") as f:
+                header = _zstd.ZstdDecompressor().decompress(f.read(), max_output_size=128)
+        except Exception as exc:
+            return f"[.blend: zstd decompression failed: {exc}]"
+
+    elif raw_start[:2] == GZIP_MAGIC:
+        compressed_by = "gzip"
         try:
             with gzip.open(path, "rb") as gz:
-                header = gz.read(12)
+                header = gz.read(128)
         except Exception as exc:
-            return f"[.blend file is compressed but could not be decompressed: {exc}]"
+            return f"[.blend: gzip decompression failed: {exc}]"
+
     else:
         with open(path, "rb") as f:
-            header = f.read(12)
+            header = f.read(128)
 
-    logger.info("blend: header=%s", header.hex())
+    if not header.startswith(BLEND_MAGIC):
+        logger.warning("blend: unexpected header hex=%s", header[:12].hex())
+        return "[Not a valid .blend file]"
 
-    if len(header) < 12 or not header.startswith(MAGIC):
-        return f"[Not a valid .blend file (header: {header[:7]})]"
+    rest = header[7:]  # everything after "BLENDER"
 
-    ptr_size = 8 if header[7:8] == b"-" else 4  # '-' = 64-bit, '_' = 32-bit
-    endian = "little" if header[8:9] == b"v" else "big"
-    ver_raw = header[9:12].decode("ascii", errors="replace")
-    try:
-        ver_int = int(ver_raw)
-        major, minor, patch = ver_int // 100, (ver_int % 100) // 10, ver_int % 10
-        version = f"{major}.{minor}.{patch}"
-    except ValueError:
-        version = ver_raw
+    # New format (Blender 4.0+): next 2 bytes are ASCII digits ("16", "17", …)
+    if len(rest) >= 8 and rest[:2].isdigit():
+        fmt_ver   = rest[0:2].decode("ascii")              # e.g. "17"
+        ptr_char  = rest[2:3]                              # '-' 64-bit | '_' 32-bit
+        # rest[3:5] is padding ("01" etc.), skip
+        endian_ch = rest[5:6]                              # 'v' LE | 'V' BE
+        # rest[6:10] is 4-char version string, not used — we prefer fmt_ver map
+        release   = FMT_VER_MAP.get(fmt_ver, f"4.x+ (file format {fmt_ver})")
+        version_str = f"Blender {release}"
 
-    bits = ptr_size * 8
-    endian_label = "little-endian" if endian == "little" else "big-endian"
-    compressed = " (compressed)" if raw_start == b"\x1f\x8b" else ""
+    # Old format (Blender ≤ 3.x): ptr + endian + 3-digit ver
+    else:
+        ptr_char  = rest[0:1]
+        endian_ch = rest[1:2]
+        ver_raw   = rest[2:5].decode("ascii", errors="replace").strip()
+        try:
+            v = int(ver_raw)
+            version_str = f"Blender {v // 100}.{(v % 100) // 10}.{v % 10}"
+        except ValueError:
+            version_str = f"Blender (ver bytes: {ver_raw!r})"
+
+    ptr_size    = 8 if ptr_char == b"-" else 4
+    endian_label = "little-endian" if endian_ch == b"v" else "big-endian"
+    comp_note   = f", {compressed_by} compressed" if compressed_by else ""
 
     return (
         f"Blender file info:\n"
-        f"- Blender version: {version}\n"
-        f"- Architecture: {bits}-bit ({endian_label}){compressed}\n"
-        f"(Geometry, materials, and scene data cannot be extracted without Blender)"
+        f"- Version: {version_str}\n"
+        f"- Architecture: {ptr_size * 8}-bit ({endian_label}{comp_note})\n"
+        f"(Geometry, materials, and scene data require Blender to open)"
     )
+
 
 
 def _safe_zip_names(zf: zipfile.ZipFile) -> list[str]:
