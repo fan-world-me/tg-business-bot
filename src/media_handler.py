@@ -136,8 +136,23 @@ async def _nvidia_video(video_path: str, prompt: str, use_audio: bool = True) ->
             {"type": "video_url", "video_url": {"url": f"data:video/mp4;base64,{b64}"}},
         ],
     }]
-    extra_body = {"mm_processor_kwargs": {"use_audio_in_video": use_audio}}
-    return _compact_summary(await nvidia_multimodal(messages, models=NVIDIA_VIDEO_MODELS, extra_body=extra_body))
+
+    last_exc: Exception | None = None
+    for model in NVIDIA_VIDEO_MODELS:
+        try:
+            # nemotron-omni: mm_processor_kwargs + use_audio_in_video
+            # cosmos3-nano-reasoner and others: media_io_kwargs with fps (no audio flag)
+            if "omni" in model.lower():
+                extra_body = {"mm_processor_kwargs": {"use_audio_in_video": use_audio}}
+            else:
+                extra_body = {"media_io_kwargs": {"video": {"fps": 2}}}
+            result = await nvidia_multimodal(messages, model=model, extra_body=extra_body)
+            logger.info("nvidia-video: %s succeeded", model)
+            return _compact_summary(result)
+        except Exception as exc:
+            logger.warning("nvidia-video: %s failed (%s), trying next", model, exc)
+            last_exc = exc
+    raise last_exc or RuntimeError("No NVIDIA video models available")
 
 
 async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
@@ -182,7 +197,7 @@ async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
                 return await _nvidia_video(path, "Describe this GIF/animation in 1 short sentence. Do not provide reasoning.", use_audio=False)
         except Exception as exc:
             logger.error("GIF analysis failed: %s", exc)
-            return None
+            return "[GIF/animation]"
         finally:
             _unlink(path)
 
@@ -238,7 +253,7 @@ async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
                 )
         except Exception as exc:
             logger.error("Video note analysis failed: %s", exc)
-            return None
+            return "[video note]"
         finally:
             _unlink(video)
 
@@ -264,7 +279,7 @@ async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
                 )
         except Exception as exc:
             logger.error("Video analysis failed: %s", exc)
-            return None
+            return "[video]"
         finally:
             _unlink(video)
 

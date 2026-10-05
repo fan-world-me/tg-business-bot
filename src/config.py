@@ -48,26 +48,35 @@ def _model_list(env_name: str, default: str) -> list[str]:
 
 
 # Text chat: tried in order, first provider+model that succeeds wins.
-# Groq: qwen/qwen3.8-27b is the current Qwen preview model; openai/gpt-oss-20b is fast production fallback.
-GROQ_TEXT_MODELS: list[str] = _model_list("GROQ_TEXT_MODELS", "qwen/qwen3.8-27b,openai/gpt-oss-20b")
-# NVIDIA: llama-3.1-nemotron-ultra-253b-v1 is flagship text model; llama-3.3-nemotron-super-49b-v1 is lighter backup.
+# Groq: qwen3.8-27b primary → gpt-oss-120b (larger reasoning) → gpt-oss-20b (fast fallback).
+GROQ_TEXT_MODELS: list[str] = _model_list(
+    "GROQ_TEXT_MODELS",
+    "qwen/qwen3.8-27b,openai/gpt-oss-120b,openai/gpt-oss-20b",
+)
+# NVIDIA: nemotron-ultra (flagship) → nemotron-super (lighter) → cosmos3-nano-reasoner (smallest).
 NVIDIA_TEXT_MODELS: list[str] = _model_list(
     "NVIDIA_TEXT_MODELS",
-    "nvidia/llama-3.1-nemotron-ultra-253b-v1,nvidia/llama-3.3-nemotron-super-49b-v1",
+    "nvidia/llama-3.1-nemotron-ultra-253b-v1,nvidia/llama-3.3-nemotron-super-49b-v1,nvidia/cosmos3-nano-reasoner",
 )
 
-# Vision (photo/sticker) chat
-# qwen/qwen3.8-27b supports vision (up to 3 images); openai/gpt-oss-20b as fallback.
-GROQ_VISION_MODELS: list[str] = _model_list("GROQ_VISION_MODELS", "qwen/qwen3.8-27b,openai/gpt-oss-20b")
+# Vision (photo/sticker): image_url format.
+# Groq: qwen3.8-27b supports up to 3 images → gpt-oss-20b fallback (also supports vision).
+GROQ_VISION_MODELS: list[str] = _model_list(
+    "GROQ_VISION_MODELS",
+    "qwen/qwen3.8-27b,openai/gpt-oss-20b",
+)
+# NVIDIA: nemotron-omni (omni, video+image) → cosmos3-nano-reasoner (image+video) → phi-3.5 (image only).
 NVIDIA_VISION_MODELS: list[str] = _model_list(
     "NVIDIA_VISION_MODELS",
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning,microsoft/phi-3.5-vision-instruct",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning,nvidia/cosmos3-nano-reasoner,microsoft/phi-3.5-vision-instruct",
 )
 
-# Video/GIF/video-note analysis (NVIDIA only)
+# Video/GIF/video-note analysis (NVIDIA only, video_url format).
+# Only omni/video-capable models — vision-only models return 400 on video_url input.
+# nemotron-omni primary → cosmos3-nano-reasoner backup.
 NVIDIA_VIDEO_MODELS: list[str] = _model_list(
     "NVIDIA_VIDEO_MODELS",
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning,meta/llama-3.2-90b-vision-instruct",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning,nvidia/cosmos3-nano-reasoner",
 )
 NVIDIA_VIDEO_MODEL: str = NVIDIA_VIDEO_MODELS[0]  # kept for backward compatibility
 
