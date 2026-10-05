@@ -1,4 +1,5 @@
 import asyncio
+import asyncio
 import base64
 import logging
 import os
@@ -6,6 +7,7 @@ import re
 import tempfile
 from typing import Optional
 
+import httpx
 from aiogram import Bot
 from aiogram.types import Message
 
@@ -359,7 +361,58 @@ async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
             finally:
                 _unlink(path)
 
+    if m.venue:
+        loc = m.venue.location
+        name = m.venue.title or ""
+        address = m.venue.address or ""
+        place = f"{name}, {address}".strip(", ")
+        place_name = await _reverse_geocode(loc.latitude, loc.longitude)
+        coords = f"{loc.latitude:.5f}, {loc.longitude:.5f}"
+        parts = [f"[Venue: {place}"]
+        if place_name:
+            parts.append(f"({place_name})")
+        parts.append(f"coords: {coords}]")
+        return " ".join(parts)
+
+    if m.location:
+        lat, lon = m.location.latitude, m.location.longitude
+        place_name = await _reverse_geocode(lat, lon)
+        coords = f"{lat:.5f}, {lon:.5f}"
+        if place_name:
+            return f"[Location: {place_name} ({coords})]"
+        return f"[Location: {coords}]"
+
     return None
+
+
+async def _reverse_geocode(lat: float, lon: float) -> str | None:
+    """Reverse geocode via OpenStreetMap Nominatim (no API key required)."""
+    try:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+            r = await client.get(
+                "https://nominatim.openstreetmap.org/reverse",
+                params={"lat": lat, "lon": lon, "format": "json", "zoom": 14, "addressdetails": 1},
+                headers={"User-Agent": "tg-business-bot/1.0"},
+            )
+            r.raise_for_status()
+            data = r.json()
+            display = data.get("display_name")
+            addr = data.get("address", {})
+            # Build a short human-readable label: city/town/village + country
+            parts = []
+            for key in ("city", "town", "village", "suburb", "county", "state"):
+                val = addr.get(key)
+                if val:
+                    parts.append(val)
+                    break
+            country = addr.get("country")
+            if country:
+                parts.append(country)
+            short = ", ".join(parts) if parts else display
+            return short or display
+    except Exception as exc:
+        logger.warning("Reverse geocoding failed: %s", exc)
+        return None
 
 
 async def analyze(message: Message, bot: Bot) -> Optional[str]:

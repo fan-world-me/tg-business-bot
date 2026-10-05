@@ -105,6 +105,7 @@ def _has_media(m: Message) -> bool:
         doc_kind = media_mod._media_doc_kind(m.document.file_name, m.document.mime_type)
     return bool(
         m.photo or m.video or m.audio or m.voice or m.sticker or m.animation or m.video_note or
+        m.location or m.venue or
         (m.document and m.document.mime_type and
          (
              m.document.mime_type.startswith("image/") or
