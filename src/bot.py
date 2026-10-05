@@ -131,7 +131,26 @@ def _has_media(m: Message) -> bool:
     )
 
 
+def _trim_messages_to_fit(messages: list[dict], max_chars: int = 24_000) -> list[dict]:
+    """Drop oldest history messages (but keep system prompt and last user turn) until total fits."""
+    import json as _json
+    total = sum(len(_json.dumps(m)) for m in messages)
+    if total <= max_chars:
+        return messages
+    # messages[0] is always the system prompt; messages[-1] is the latest user turn
+    system = [messages[0]]
+    last = [messages[-1]]
+    middle = list(messages[1:-1])
+    while middle and total > max_chars:
+        removed = middle.pop(0)  # drop oldest history pair
+        total -= len(_json.dumps(removed))
+    trimmed = system + middle + last
+    logger.warning("Messages trimmed from %d to %d items to fit %d chars", len(messages), len(trimmed), max_chars)
+    return trimmed
+
+
 async def _get_reply(messages: list[dict]) -> Optional[str]:
+    messages = _trim_messages_to_fit(messages)
     try:
         return await groq_chat(messages)
     except Exception as exc:
@@ -145,11 +164,17 @@ async def _get_reply(messages: list[dict]) -> Optional[str]:
 
 async def _notify_owner(bot: Bot, user_name: str, user_id: int, question: str, answer: str) -> None:
     import html as _html
+    # Telegram message limit is 4096 chars. Header takes ~80, leave room for both parts.
+    # Truncate question to 1500 and answer to 1000 to stay well within limit.
+    MAX_Q = 1500
+    MAX_A = 1000
+    q = question if len(question) <= MAX_Q else question[:MAX_Q] + "…"
+    a = answer if len(answer) <= MAX_A else answer[:MAX_A] + "…"
     text = (
         f"🤖 <b>Auto-reply sent</b>\n\n"
         f"👤 {_html.escape(user_name)} (<code>{user_id}</code>)\n"
-        f"💬 {_html.escape(question)}\n\n"
-        f"📨 {_html.escape(answer)}"
+        f"💬 {_html.escape(q)}\n\n"
+        f"📨 {_html.escape(a)}"
     )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="🔇 Mute", callback_data=f"mute:{user_id}:{user_name}"),

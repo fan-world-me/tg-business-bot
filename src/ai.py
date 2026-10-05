@@ -59,13 +59,24 @@ def _extract_http_error_text(resp: httpx.Response) -> str:
 
 
 async def _run_chain(candidates: list[tuple[str, Any]]) -> str:
-    """Try each (label, async_callable) in order; return first success, else raise last error."""
+    """Try each (label, async_callable) in order; return first success, else raise last error.
+
+    If a 413 Payload Too Large is received, all remaining candidates in the same
+    chain will get the same error (payload size is fixed), so we bail out early
+    and let the caller escalate to the next provider.
+    """
     last_exc: Exception | None = None
     for label, call in candidates:
         try:
             result = await call()
             logger.info("AI chain: %s succeeded", label)
             return result
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 413:
+                logger.warning("AI chain: %s got 413 — bailing out of chain", label)
+                raise  # no point trying other models on same provider
+            logger.warning("AI chain: %s failed (%s), trying next", label, exc)
+            last_exc = exc
         except Exception as exc:
             logger.warning("AI chain: %s failed (%s), trying next", label, exc)
             last_exc = exc
