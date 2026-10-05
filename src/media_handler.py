@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import tempfile
+from aiogram import Bot
 from typing import Optional
 
 import httpx
