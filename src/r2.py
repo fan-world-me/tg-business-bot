@@ -2,7 +2,6 @@
 import hashlib
 import hmac
 import logging
-import tempfile
 from datetime import datetime, timezone
 
 import httpx

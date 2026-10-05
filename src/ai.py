@@ -18,7 +18,6 @@ from config import (
     MAX_TOKENS,
     NVIDIA_API_BASE_URL,
     NVIDIA_TEXT_MODELS,
-    NVIDIA_VIDEO_MODELS,
     NVIDIA_VISION_MODELS,
 )
 
@@ -36,7 +35,7 @@ async def _post(url: str, headers: dict, body: dict) -> str:
         payload = r.json()
         choice = payload["choices"][0]
         message = choice.get("message", {})
-        text = message.get("content") or message.get("reasoning") or choice.get("text") or ""
+        text = message.get("content") or choice.get("text") or ""
         if isinstance(text, list):
             text = " ".join(
                 part.get("text", "") for part in text if isinstance(part, dict)
@@ -227,8 +226,7 @@ async def gemini_youtube_video(url: str, prompt: str, model: str = GEMINI_VIDEO_
             async with httpx.AsyncClient(timeout=120) as client:
                 resp = await client.post(
                     f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent",
-                    params={"key": GEMINI_API_KEY},
-                    headers={"Content-Type": "application/json"},
+                    headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY},
                     json=body,
                 )
                 if resp.status_code == 429:

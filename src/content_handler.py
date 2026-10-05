@@ -1,10 +1,13 @@
 """Lightweight text extraction for URLs, documents, archives, and code files."""
 from __future__ import annotations
 
+import asyncio
 import html
+import ipaddress
 import logging
 import os
 import re
+import socket
 import tempfile
 import zipfile
 from pathlib import Path
@@ -22,7 +25,6 @@ from ai import GeminiRateLimitError, gemini_youtube_video
 from config import (
     MAX_ARCHIVE_FILES,
     MAX_ARCHIVE_MB,
-    MAX_DOC_MB,
     MAX_TEXT_CHARS,
     MAX_URL_MB,
 )
@@ -227,7 +229,7 @@ def _text_from_blend(path: str) -> str:
             return "[.blend file uses zstd compression (Blender 4.0+) — zstandard library not installed]"
         try:
             with open(path, "rb") as f:
-                header = _zstd.ZstdDecompressor().decompress(f.read(), max_output_size=128)
+                header = _zstd.ZstdDecompressor().stream_reader(f).read(128)
         except Exception as exc:
             return f"[.blend: zstd decompression failed: {exc}]"
 
@@ -356,25 +358,56 @@ def _is_youtube_url(url: str) -> bool:
     return bool(YOUTUBE_RE.match(url))
 
 
+async def _is_public_url(url: str) -> bool:
+    """Reject non-http(s) URLs and hosts resolving to private/loopback/link-local IPs."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return False
+    try:
+        infos = await asyncio.get_running_loop().getaddrinfo(
+            parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80),
+            type=socket.SOCK_STREAM,
+        )
+    except OSError:
+        return False
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if not ip.is_global:
+            return False
+    return bool(infos)
+
+
 async def _download_url(url: str) -> tuple[str, str | None, str]:
     headers = {
         "User-Agent": "Mozilla/5.0 (CodexBot/1.0)",
         "Accept": "*/*",
     }
     max_bytes = MAX_URL_MB * 1024 * 1024
-    async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers=headers) as client:
-        async with client.stream("GET", url) as resp:
-            resp.raise_for_status()
-            content_type = resp.headers.get("content-type", "").split(";", 1)[0].strip().lower() or None
-            suffix = _suffix_from_name(urlparse(url).path)
-            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix or ".bin") as f:
-                written = 0
-                async for chunk in resp.aiter_bytes():
-                    written += len(chunk)
-                    if written > max_bytes:
-                        raise ValueError(f"URL content exceeds {MAX_URL_MB} MB")
-                    f.write(chunk)
-                return f.name, content_type, suffix
+    async with httpx.AsyncClient(timeout=30, follow_redirects=False, headers=headers) as client:
+        for _ in range(6):  # manual redirects so every hop is validated
+            if not await _is_public_url(url):
+                raise ValueError("URL points to a non-public address")
+            async with client.stream("GET", url) as resp:
+                if resp.is_redirect and resp.headers.get("location"):
+                    url = str(httpx.URL(url).join(resp.headers["location"]))
+                    continue
+                resp.raise_for_status()
+                content_type = resp.headers.get("content-type", "").split(";", 1)[0].strip().lower() or None
+                suffix = _suffix_from_name(urlparse(url).path)
+                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix or ".bin") as f:
+                    written = 0
+                    try:
+                        async for chunk in resp.aiter_bytes():
+                            written += len(chunk)
+                            if written > max_bytes:
+                                raise ValueError(f"URL content exceeds {MAX_URL_MB} MB")
+                            f.write(chunk)
+                    except Exception:
+                        f.close()
+                        os.unlink(f.name)
+                        raise
+                    return f.name, content_type, suffix
+        raise ValueError("Too many redirects")
 
 
 def _is_code_or_text_name(name: str | None) -> bool:

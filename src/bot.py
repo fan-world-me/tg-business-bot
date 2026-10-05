@@ -32,6 +32,11 @@ muted_users: dict[int, str] = {}  # user_id → user_name
 MAX_CONVERSATIONS = 200  # cap in-memory conversations to avoid OOM on 512 MB Heroku
 
 
+def _conn_key(message: Message) -> str:
+    """business_connection_id is shared by ALL chats of the account, so add chat id."""
+    return f"{message.business_connection_id}:{message.chat.id}"
+
+
 def _trim_conversations() -> None:
     if len(conversations) > MAX_CONVERSATIONS:
         oldest_keys = list(conversations.keys())[: len(conversations) - MAX_CONVERSATIONS]
@@ -451,7 +456,6 @@ def register(dp: Dispatcher, bot: Bot) -> None:
 
     @dp.business_message()
     async def on_business_message(message: Message) -> None:
-        global enabled
 
         if message.forward_from or message.forward_from_chat or message.forward_origin:
             asyncio.create_task(_save_forward(message, bot))
@@ -475,21 +479,21 @@ def register(dp: Dispatcher, bot: Bot) -> None:
                     bot=bot,
                     user_id=message.from_user.id,
                     user_name=message.from_user.full_name or f"id{message.from_user.id}",
-                    conn_id=message.business_connection_id,
+                    conn_id=_conn_key(message),
                     notify_owner=True,
                     forward_prefix=f"[Forwarded from: {fwd_name}]",
                 )
-            return
-
-        if message.video_chat_ended or message.video_chat_started:
-            if message.from_user and message.from_user.id != OWNER_ID:
-                await message.answer(f"@{OWNER_USERNAME} скоро відповість! 📞")
             return
 
         if not enabled:
             return
 
         if not message.from_user:
+            return
+
+        if message.video_chat_ended or message.video_chat_started:
+            if message.from_user.id != OWNER_ID and message.from_user.id not in muted_users:
+                await message.answer(f"@{OWNER_USERNAME} скоро відповість! 📞")
             return
 
         if message.from_user.id == OWNER_ID:
@@ -516,10 +520,10 @@ def register(dp: Dispatcher, bot: Bot) -> None:
             bot=bot,
             user_id=message.from_user.id,
             user_name=message.from_user.full_name or f"id{message.from_user.id}",
-            conn_id=message.business_connection_id,
+            conn_id=_conn_key(message),
             notify_owner=True,
         )
-    @dp.callback_query(lambda c: c.data.startswith("unmute:"))
+    @dp.callback_query(lambda c: (c.data or "").startswith("unmute:"))
     async def on_unmute(callback: CallbackQuery) -> None:
         if callback.from_user.id != OWNER_ID:
             return
@@ -529,7 +533,7 @@ def register(dp: Dispatcher, bot: Bot) -> None:
         await callback.message.edit_text(f"🔊 {name} unmuted.")
         await callback.answer()
 
-    @dp.callback_query(lambda c: c.data.startswith("mute:"))
+    @dp.callback_query(lambda c: (c.data or "").startswith("mute:"))
     async def on_mute(callback: CallbackQuery) -> None:
         if callback.from_user.id != OWNER_ID:
             return
@@ -540,7 +544,7 @@ def register(dp: Dispatcher, bot: Bot) -> None:
         name = str(uid)
         if callback.message and callback.message.text:
             import re as _re
-            m = _re.search(r"👤 (.+?) \(<code>", callback.message.text)
+            m = _re.search(r"👤 (.+?) \(\d+\)", callback.message.text)
             if m:
                 name = m.group(1)
         muted_users[uid] = name
@@ -559,7 +563,6 @@ def register(dp: Dispatcher, bot: Bot) -> None:
         and not (m.forward_from or m.forward_from_chat or m.forward_origin)
     ))
     async def on_owner_test_message(message: Message) -> None:
-        global test_mode_active
         if not test_mode_active:
             has_file = bool(
                 message.photo or message.video or message.audio or message.voice

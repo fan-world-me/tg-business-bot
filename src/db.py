@@ -1,4 +1,5 @@
 """Cloudflare D1 — conversations log + forwarded messages."""
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -72,10 +73,14 @@ async def log_forward(user_id: int, user_name: str, msg_type: str, text: str | N
 
 
 async def load_muted_users() -> dict[int, str]:
-    rows = await _query("SELECT user_id, user_name FROM muted_users")
-    if not rows:
-        return {}
-    return {int(row["user_id"]): row["user_name"] for row in rows}
+    for attempt in range(3):
+        rows = await _query("SELECT user_id, user_name FROM muted_users")
+        if rows is not None:  # None means the query failed; [] means nobody is muted
+            return {int(row["user_id"]): row["user_name"] for row in rows}
+        logger.warning("load_muted_users failed (attempt %d/3)", attempt + 1)
+        await asyncio.sleep(2)
+    logger.error("Could not load muted users — starting with an empty list")
+    return {}
 
 
 async def save_muted_user(user_id: int, user_name: str) -> None:
