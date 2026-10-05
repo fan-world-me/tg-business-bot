@@ -31,7 +31,10 @@ logger = logging.getLogger(__name__)
 
 URL_RE = re.compile(r"^https?://\S+$", re.IGNORECASE)
 YOUTUBE_RE = re.compile(
-    r"^https?://(?:www\.)?(?:youtube\.com/watch\?v=[^&\s]+|youtu\.be/[^?\s]+|youtube\.com/shorts/[^?\s]+)",
+    r"^https?://(?:(?:www\.|m\.)?youtube\.com/watch\?(?:[^#\s]*&)?v=[^&\s#]+"
+    r"|youtu\.be/[^?\s#]+"
+    r"|(?:www\.)?youtube\.com/shorts/[^?\s#]+"
+    r"|(?:www\.)?youtube\.com/live/[^?\s#]+)",
     re.IGNORECASE,
 )
 GITHUB_BLOB_RE = re.compile(
@@ -149,18 +152,18 @@ def _text_from_pptx(path: str) -> str:
 
 
 def _text_from_xlsx(path: str) -> str:
-    wb = load_workbook(path, read_only=True, data_only=True)
     parts = []
-    for ws in wb.worksheets[:5]:
-        rows = []
-        for i, row in enumerate(ws.iter_rows(values_only=True)):
-            if i >= 80:
-                break
-            vals = [str(v) for v in row if v is not None and str(v).strip()]
-            if vals:
-                rows.append(" | ".join(vals))
-        if rows:
-            parts.append(f"Sheet {ws.title}:\n" + "\n".join(rows))
+    with load_workbook(path, read_only=True, data_only=True) as wb:
+        for ws in wb.worksheets[:5]:
+            rows = []
+            for i, row in enumerate(ws.iter_rows(values_only=True)):
+                if i >= 80:
+                    break
+                vals = [str(v) for v in row if v is not None and str(v).strip()]
+                if vals:
+                    rows.append(" | ".join(vals))
+            if rows:
+                parts.append(f"Sheet {ws.title}:\n" + "\n".join(rows))
     return "\n\n".join(parts)
 
 
@@ -448,18 +451,23 @@ def looks_like_news(text: str) -> bool:
 
 
 async def web_search(query: str, max_results: int = 3) -> Optional[str]:
-    """Search the web via DuckDuckGo HTML and return brief snippets."""
+    """Search the web via DuckDuckGo Lite and return brief snippets."""
     try:
         async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
             r = await client.get(
-                "https://html.duckduckgo.com/html/",
+                "https://lite.duckduckgo.com/lite/",
                 params={"q": query},
-                headers={"User-Agent": "Mozilla/5.0 (compatible; Bot/1.0)"},
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                  "Chrome/124.0.0.0 Safari/537.36",
+                    "Accept-Language": "en-US,en;q=0.9",
+                },
             )
             r.raise_for_status()
             soup = BeautifulSoup(r.content, "html.parser")
             snippets = []
-            for el in soup.select(".result__snippet")[:max_results]:
+            for el in soup.select(".result-snippet")[:max_results]:
                 t = el.get_text(" ", strip=True)
                 if t:
                     snippets.append(t[:300])

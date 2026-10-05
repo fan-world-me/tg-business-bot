@@ -1,5 +1,4 @@
 import asyncio
-import asyncio
 import base64
 import logging
 import os
@@ -8,7 +7,6 @@ import tempfile
 from typing import Optional
 
 import httpx
-from aiogram import Bot
 from aiogram.types import Message
 
 import content_handler as content_mod
@@ -352,7 +350,7 @@ async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
             suffix = m.document.file_name.rsplit(".", 1)[-1].lower() if m.document.file_name and "." in m.document.file_name else kind
             if suffix == "dockerfile":
                 suffix = "txt"
-            with tempfile.NamedTemporaryFile(delete=False, suffix=f".{suffix if suffix not in {'pdf', 'docx', 'pptx', 'xlsx', 'zip'} else suffix}") as f:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=f".{suffix}") as f:
                 path = f.name
             try:
                 await bot.download(m.document.file_id, destination=path)

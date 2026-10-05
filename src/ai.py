@@ -42,6 +42,8 @@ async def _post(url: str, headers: dict, body: dict) -> str:
                 part.get("text", "") for part in text if isinstance(part, dict)
             )
         text = _THINK_RE.sub("", str(text)).strip()
+        if not text:
+            raise RuntimeError("Model returned an empty response")
         return text
 
 
@@ -242,7 +244,9 @@ async def gemini_youtube_video(url: str, prompt: str, model: str = GEMINI_VIDEO_
                 if result:
                     logger.info("Gemini youtube: %s succeeded", m)
                     return result
-            return str(payload).strip()
+            # No usable text — treat as failure and try next model
+            logger.warning("Gemini youtube: %s returned empty candidates/text, trying next", m)
+            last_exc = RuntimeError(f"Gemini {m} returned no text content")
         except GeminiRateLimitError:
             raise  # let caller handle 429 → oEmbed fallback
         except Exception as exc:

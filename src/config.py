@@ -23,8 +23,8 @@ GIFT_CARD_URL: str = os.getenv("GIFT_CARD_URL", "")
 
 # Cloudflare
 CF_ACCOUNT_ID: str = os.environ["CLOUDFLARE_ACCOUNT_ID"]
-CF_GATEWAY_ID: str = os.environ["CLOUDFLARE_AI_GATEWAY_ID"]
-CF_GATEWAY_TOKEN: str = os.environ["CLOUDFLARE_AI_GATEWAY_TOKEN"]
+CF_GATEWAY_ID: str = os.getenv("CLOUDFLARE_AI_GATEWAY_ID", "")
+CF_GATEWAY_TOKEN: str = os.getenv("CLOUDFLARE_AI_GATEWAY_TOKEN", "")
 
 # Cloudflare D1
 D1_DATABASE_ID: str = os.environ["CLOUDFLARE_D1_DATABASE_ID"]

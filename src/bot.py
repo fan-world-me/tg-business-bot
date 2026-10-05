@@ -118,17 +118,30 @@ def _has_media(m: Message) -> bool:
                  "application/json",
                  "application/xml",
                  "text/csv",
+                 "application/csv",
+                 "application/yaml",
                  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
                  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
              }
          )) or
         doc_kind in {"image", "video", "audio"} or
-        (m.document and m.document.file_name and m.document.file_name.lower().endswith(
-            (".pdf", ".docx", ".pptx", ".xlsx", ".zip", ".blend", ".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java",
-             ".kt", ".c", ".h", ".cpp", ".hpp", ".cs", ".php", ".rb", ".swift", ".sh", ".bash", ".ps1", ".sql",
-             ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".md", ".txt", ".html", ".css", ".scss", ".xml")
-        ))
+        (m.document and m.document.file_name and m.document.file_name.lower().endswith((
+            # documents
+            ".pdf", ".docx", ".pptx", ".xlsx", ".zip", ".blend",
+            # code — keep in sync with content_handler.CODE_EXTS
+            ".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java", ".kt",
+            ".c", ".h", ".cpp", ".hpp", ".cs", ".php", ".rb", ".swift",
+            ".sh", ".bash", ".ps1", ".sql",
+            ".json", ".jsonl", ".ndjson", ".yaml", ".yml", ".toml", ".ini", ".cfg",
+            ".md", ".txt", ".log", ".html", ".htm", ".css", ".scss", ".xml",
+            ".dockerfile", ".gitignore",
+            ".dart", ".lua", ".r", ".jl", ".ex", ".exs", ".zig", ".m", ".mm",
+            ".vue", ".svelte", ".astro", ".elm", ".clj", ".cljs", ".erl", ".hrl",
+            ".hs", ".ml", ".mli", ".fs", ".fsx", ".v", ".vhd", ".vhdl",
+            ".tf", ".hcl", ".nix", ".proto", ".graphql", ".gql",
+            ".csv",
+        )))
     )
 
 
@@ -178,7 +191,7 @@ async def _notify_owner(bot: Bot, user_name: str, user_id: int, question: str, a
         f"📨 {_html.escape(a)}"
     )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🔇 Mute", callback_data=f"mute:{user_id}:{user_name}"),
+        InlineKeyboardButton(text="🔇 Mute", callback_data=f"mute:{user_id}"),
     ]])
     try:
         await bot.send_message(OWNER_ID, text, parse_mode="HTML", reply_markup=keyboard)
@@ -218,10 +231,12 @@ async def _save_forward(message: Message, bot: Bot) -> None:
         user_name = message.forward_from_chat.title or str(user_id)
     elif message.forward_origin:
         o = message.forward_origin
+        # MessageOriginChat uses sender_chat; MessageOriginChannel uses chat
+        _chat = getattr(o, "sender_chat", None) or getattr(o, "chat", None)
         user_id = getattr(getattr(o, "sender_user", None), "id", 0) or \
-                  getattr(getattr(o, "chat", None), "id", 0) or 0
+                  getattr(_chat, "id", 0) or 0
         user_name = getattr(getattr(o, "sender_user", None), "full_name", None) or \
-                    getattr(getattr(o, "chat", None), "title", None) or \
+                    getattr(_chat, "title", None) or \
                     getattr(o, "sender_user_name", None) or "unknown"
     else:
         user_id = 0
@@ -342,6 +357,16 @@ async def _process_inbound_message(
     if user_id in muted_users:
         return
 
+    # Show typing indicator while processing (best-effort, ignore errors)
+    try:
+        await bot.send_chat_action(
+            chat_id=message.chat.id,
+            action="typing",
+            business_connection_id=message.business_connection_id,
+        )
+    except Exception:
+        pass
+
     text = message.text or message.caption or ""
 
     url_desc = None
@@ -438,6 +463,7 @@ def register(dp: Dispatcher, bot: Bot) -> None:
                 elif message.forward_origin:
                     fwd_name = (
                         getattr(getattr(message.forward_origin, "sender_user", None), "full_name", None)
+                        or getattr(getattr(message.forward_origin, "sender_chat", None), "title", None)
                         or getattr(getattr(message.forward_origin, "chat", None), "title", None)
                         or getattr(message.forward_origin, "sender_user_name", None)
                         or "someone"
@@ -474,11 +500,14 @@ def register(dp: Dispatcher, bot: Bot) -> None:
                         for uid, uname in list(muted_users.items()):
                             if uname.lower() == username.lower() or str(uid) == username:
                                 del muted_users[uid]
-                                await message.reply(f"🔊 @{username} unmuted — bot will reply again.")
+                                # Send to owner's private chat, not the business chat
+                                await bot.send_message(OWNER_ID, f"🔊 @{username} unmuted — bot will reply again.")
                                 return
-                        await message.reply(
+                        # Send hint to owner's private chat only — never into the client's chat
+                        await bot.send_message(
+                            OWNER_ID,
                             "⚠️ To mute someone, forward their message to me first so I know their ID.\n"
-                            "Or use /mute <user_id>"
+                            "Or use /mute <user_id>",
                         )
             return
 
@@ -504,9 +533,16 @@ def register(dp: Dispatcher, bot: Bot) -> None:
     async def on_mute(callback: CallbackQuery) -> None:
         if callback.from_user.id != OWNER_ID:
             return
-        _, uid, *name_parts = callback.data.split(":")
-        uid = int(uid)
-        name = ":".join(name_parts) if name_parts else str(uid)
+        parts = callback.data.split(":")
+        uid = int(parts[1])
+        # Name is not stored in callback_data (64-byte limit) — extract from
+        # the notification message text or fall back to str(uid).
+        name = str(uid)
+        if callback.message and callback.message.text:
+            import re as _re
+            m = _re.search(r"👤 (.+?) \(<code>", callback.message.text)
+            if m:
+                name = m.group(1)
         muted_users[uid] = name
         asyncio.create_task(db.save_muted_user(uid, name))
         keyboard = InlineKeyboardMarkup(inline_keyboard=[[
