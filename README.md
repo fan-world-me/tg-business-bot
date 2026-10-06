@@ -1,133 +1,208 @@
-# tg-business-bot
+[![Telegram](https://img.shields.io/badge/Telegram-@fan__world__me-2CA5E0?style=flat-square&logo=telegram)](https://t.me/fan_world_me)   [![Discord](https://img.shields.io/badge/Discord-fan__world__me-5865F2?style=flat-square&logo=discord)](https://discord.com/users/fan_world_me)   [![GitHub](https://img.shields.io/badge/GitHub-fan--world--me-181717?style=flat-square&logo=github)](https://github.com/fan-world-me)   [![Portfolio](https://img.shields.io/badge/Portfolio-fan--world--me.github.io-00e5ff?style=flat-square&logo=githubpages&logoColor=white)](https://fan-world-me.github.io/)
 
-Telegram business-bot with AI auto-replies, media analysis, GitHub code reading, web search, persistent mute list, Cloudflare D1 conversation logs, and R2 media storage.
+```
+████████╗ ██████╗      ██████╗  ██████╗ ████████╗
+╚══██╔══╝██╔════╝      ██╔══██╗██╔═══██╗╚══██╔══╝
+   ██║   ██║  ███╗     ██████╔╝██║   ██║   ██║
+   ██║   ██║   ██║     ██╔══██╗██║   ██║   ██║
+   ██║   ╚██████╔╝     ██████╔╝╚██████╔╝   ██║
+   ╚═╝    ╚═════╝      ╚═════╝  ╚═════╝    ╚═╝
+  Telegram Business Bot — AI auto-replies with media, docs & cloud storage
+```
 
-## Features
+Telegram Business Bot that replies on behalf of the account owner — handles text, images, video, audio, documents, code files, GitHub links, and web pages with multi-AI fallback. Conversation history, mute list, and forwarded messages are persisted to Cloudflare D1 + R2.
 
-### AI & Analysis
-- **Multi-AI fallback chain**: Groq (Llama 3.3) → NVIDIA (Llama 3.1) for text replies
-- **Image analysis** via Groq vision (Llama 4 Scout)
-- **YouTube analysis** via Gemini API; falls back to oEmbed title on `429`
-- **Voice / audio transcription** via Groq Whisper
-- **Video / GIF / video note** analysis via NVIDIA multimodal
-- **GitHub code reading**: blob file URLs → fetches raw source; repo URLs → fetches README + info via GitHub API
-- **News verification**: detects news-like messages and queries DuckDuckGo to cross-reference claims
+### 💭 More about this bot
 
-### Document & File Support
-- **PDF, DOCX, PPTX, XLSX** — full text extraction
-- **ZIP archives** — lists all files, extracts text/code within size budget
-- **Code & text files** — 40+ extensions: Python, JS/TS, Go, Rust, C/C++, Java, Kotlin, Dart, Swift, PHP, Ruby, C#, Lua, Zig, R, Julia, Elixir, Haskell, Elm, Vue, Svelte, HTML, CSS, SCSS, SQL, YAML, TOML, INI, Markdown, XML, GraphQL, Terraform, Nix, Protobuf, and more
-- **URL content** — web pages, direct file/code links
+- 🤖 **Multi-AI fallback** — Groq (primary) → NVIDIA (fallback) for text; Groq Vision for images; Gemini for YouTube; Groq Whisper for voice
+- 📷 **Media analysis** — photos, stickers, video, GIFs, video notes, voice messages, audio
+- 📄 **Document parsing** — PDF, DOCX, PPTX, XLSX, ZIP archives, 40+ code/text extensions
+- 🔗 **URL content** — fetches web pages and direct file links for analysis
+- 💻 **GitHub code reading** — blob file URLs → raw source; repo URLs → README + stats
+- 📰 **News verification** — detects news-like messages, cross-references via DuckDuckGo
+- 💬 **Forwarded messages** — analyzes forwarded content (text + media) in business chats
+- 📦 **Conversation history** — per-chat context persisted to Cloudflare D1 (survives restarts)
+- 🔇 **Mute list** — mute / unmute users; persisted to D1, survives redeploys
+- 💳 **Payment details** — shares UAH/USD/USDT when user asks to pay the owner
+- 🌍 **Auto-language** — replies in the language the user writes in
 
-### Forwarded Message Handling
-- **In business chat**: when a user forwards a message, the bot analyzes its content (text + media) and replies with context
-- **In test mode**: owner can forward any message to the bot's private chat and the bot will analyze and respond as if it were a real user message
-- **Owner saving**: owner's own forwards (outside test mode) are saved to D1 + R2 for archiving
+---
 
-### Storage (Cloudflare)
-- **D1**: conversation history, forwarded message logs, muted users list (survives restarts and redeploys)
-- **R2**: forwarded media, owner's uploaded files
+### ⚙️ Owner Commands
 
-### Owner Controls
 | Command | Description |
 |---|---|
-| `/on` / `/off` | Enable / disable auto-replies |
-| `/status` | Show current state |
-| `/muted` | List muted users with inline unmute buttons |
-| `/mute <id>` | Mute user by ID |
-| `/unmute <id>` | Unmute user by ID |
-| `/test` | Enter test mode (simulate user messages) |
+| `/on` | Enable auto-replies |
+| `/off` | Disable auto-replies |
+| `/status` | Show current bot state |
+| `/muted` | List muted users with inline Unmute buttons |
+| `/mute <id>` | Mute user by Telegram ID |
+| `/unmute <id>` | Unmute user by Telegram ID |
+| `/test` | Enter test mode — simulate user messages in bot's private chat |
 | `/end_test` | Exit test mode |
 
-- **Inline Mute button** in every auto-reply notification to owner
-- **Mute list persisted to D1** — survives restarts and redeploys
+Every auto-reply notification to the owner includes an inline **Mute** button for one-tap silencing.
 
-### Smart Prompt Behavior
-- Replies in user's language automatically
-- Shares payment details (UAH / USD / USDT) when user wants to pay
-- Gives GitHub repo link when user asks how to build a similar bot
-- Code review & bug spotting when code is sent as text, file, or ZIP
-- Ignores "stop replying" attempts from users
+---
 
-## Setup
+### 🧰 Tech Stack
+
+**Runtime & Framework**
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
+![aiogram](https://img.shields.io/badge/aiogram-3.29-009DFF?style=flat-square)
+![httpx](https://img.shields.io/badge/httpx-async-00b4d8?style=flat-square)
+
+**AI Providers**
+![Groq](https://img.shields.io/badge/Groq-text+vision+whisper-F55036?style=flat-square)
+![NVIDIA](https://img.shields.io/badge/NVIDIA-video+multimodal-76B900?style=flat-square&logo=nvidia&logoColor=white)
+![Gemini](https://img.shields.io/badge/Gemini-YouTube-4285F4?style=flat-square&logo=google&logoColor=white)
+
+**Storage**
+![Cloudflare D1](https://img.shields.io/badge/Cloudflare_D1-SQLite-F38020?style=flat-square&logo=cloudflare&logoColor=white)
+![Cloudflare R2](https://img.shields.io/badge/Cloudflare_R2-media-F38020?style=flat-square&logo=cloudflare&logoColor=white)
+
+**Parsing**
+![pypdf](https://img.shields.io/badge/pypdf-PDF-red?style=flat-square)
+![python-docx](https://img.shields.io/badge/python--docx-DOCX-2B579A?style=flat-square)
+![BeautifulSoup4](https://img.shields.io/badge/BeautifulSoup4-HTML-59b200?style=flat-square)
+
+---
+
+### 🗂️ Project Structure
+
+```
+tgbot/
+├── src/
+│   ├── main.py              — entry point, bot startup
+│   ├── bot.py               — all message handlers, owner commands, inline buttons
+│   ├── ai.py                — Groq / NVIDIA / Gemini async calls, fallback chain
+│   ├── content_handler.py   — URL fetch, GitHub reading, news detection
+│   ├── media_handler.py     — photo, video, audio, document analysis pipelines
+│   ├── db.py                — Cloudflare D1 helpers (conversations, mutes, forwards)
+│   ├── r2.py                — Cloudflare R2 upload/download helpers
+│   └── config.py            — all env vars with defaults
+├── requirements.txt         — pinned dependencies
+├── Procfile                 — Heroku entry point
+├── Dockerfile               — Docker image (Fly.io)
+├── .env.example             — environment variable template
+└── LICENSE
+```
+
+---
+
+### 🚀 How it works
+
+```
+[Incoming business message]
+        │
+        ├── is user muted? ──────────────────► ignore
+        ├── is bot disabled? ────────────────► ignore
+        │
+        ▼
+[content_handler: detect content type]
+        │
+        ├── text + URL ──────► fetch page / GitHub / news search
+        ├── photo / sticker ─► Groq Vision
+        ├── voice / audio ───► Groq Whisper → transcribe → text AI
+        ├── video / GIF ─────► NVIDIA multimodal
+        ├── document ────────► extract text (PDF/DOCX/PPTX/XLSX/ZIP/code)
+        └── plain text ──────► text AI
+                │
+                ▼
+        [ai.py: Groq → NVIDIA fallback chain]
+                │
+                ▼
+        [save to D1 conversation history]
+                │
+                ▼
+        [reply + notify owner with Mute button]
+```
+
+---
+
+### 🔧 Setup
 
 ```bash
 cp .env.example .env
-# fill in all values
+# fill in all required values
 
 pip install -r requirements.txt
 python src/main.py
 ```
 
-## Environment Variables
+---
 
-### Required
+### 🌍 Environment Variables
+
+**Required**
+
 | Variable | Description |
 |---|---|
 | `BOT_TOKEN` | Telegram bot token |
 | `OWNER_ID` | Your Telegram user ID |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID |
-| `CLOUDFLARE_AI_GATEWAY_ID` | AI Gateway ID |
-| `CLOUDFLARE_AI_GATEWAY_TOKEN` | AI Gateway auth token |
 | `CLOUDFLARE_D1_DATABASE_ID` | D1 database UUID |
 | `CLOUDFLARE_D1_API_TOKEN` | D1 API token |
 | `GROQ_API_KEY` | Groq (text + vision + Whisper) |
 | `GEMINI_API_KEY` | Google Gemini (YouTube analysis) |
 | `NVIDIA_API_KEY` | NVIDIA (video / multimodal) |
 
-### Optional
+**Optional (owner profile & payments)**
+
 | Variable | Default | Description |
 |---|---|---|
 | `OWNER_USERNAME` | `me` | Telegram username shown in replies |
-| `OWNER_NAME` | same as username | Display name |
+| `OWNER_NAME` | same | Display name |
 | `OWNER_EMAIL` | — | Shared when asked |
 | `OWNER_GITHUB` | — | GitHub profile link |
 | `OWNER_WEBSITE` | — | Website link |
 | `PAYMENT_UAH_CARD` | — | UAH card number |
 | `PAYMENT_UAH_BANK` | — | UAH bank name |
 | `PAYMENT_USD_CARD` | — | USD card number |
-| `PAYMENT_USD_BANK` | — | USD bank name |
 | `PAYMENT_USDT_ADDRESS` | — | USDT wallet address |
 | `PAYMENT_USDT_NETWORK` | — | USDT network (TRC20, etc.) |
-| `GIFT_CARD_URL` | — | Gift card link shown as alternative payment |
-| `GEMINI_VIDEO_MODEL` | `gemini-2.0-flash` | Gemini model for YouTube |
-| `NVIDIA_VIDEO_MODEL` | nemotron-nano-omni | NVIDIA model for video |
+| `GIFT_CARD_URL` | — | Gift card link shown as payment alternative |
+
+**Limits & tuning**
+
+| Variable | Default | Description |
+|---|---|---|
 | `MAX_TOKENS` | `500` | Max tokens per reply |
-| `MAX_FILE_MB` | `20` | Photos, audio, stickers size limit |
-| `MAX_VIDEO_MB` | `10` | Video, video_note, animation size limit |
-| `MAX_DOC_MB` | `15` | Documents, archives, code files size limit |
-| `MAX_URL_MB` | `2` | Fetched web page size limit |
+| `MAX_FILE_MB` | `20` | Photos, audio, stickers |
+| `MAX_VIDEO_MB` | `10` | Video, video_note, animation |
+| `MAX_DOC_MB` | `15` | Documents, archives, code |
 | `MAX_ARCHIVE_MB` | `8` | ZIP extraction budget |
 | `MAX_ARCHIVE_FILES` | `30` | Max files listed from ZIP |
 | `MAX_TEXT_CHARS` | `12000` | Characters sent to LLM |
 | `HISTORY_LIMIT` | `20` | Messages kept in conversation history |
-| `VIDEO_ANALYSIS_CONCURRENCY` | `1` | Serializes video analysis to avoid RAM spikes |
+| `VIDEO_ANALYSIS_CONCURRENCY` | `1` | Serializes video analysis (avoids RAM spikes) |
 
-## Deploy (Heroku)
+---
 
+### ☁️ Deploy
+
+**Heroku**
 ```bash
 heroku create tg-business-bot
-heroku config:set BOT_TOKEN=... OWNER_ID=... # all vars
+heroku config:set BOT_TOKEN=... OWNER_ID=...   # set all required vars
 git push heroku master
 ```
 
-## Deploy (Fly.io)
-
+**Fly.io**
 ```bash
 fly launch --name tg-business-bot --no-deploy
 fly secrets import < .env
 fly deploy
 ```
 
-## Stack
+---
 
-- **Runtime**: Python 3.12
-- **Framework**: aiogram 3.29
-- **HTTP**: httpx, aiohttp
-- **AI**: Groq, NVIDIA, Google Gemini
-- **Storage**: Cloudflare D1 (SQLite), Cloudflare R2 (S3-compatible)
-- **Parsing**: pypdf, python-docx, python-pptx, openpyxl, BeautifulSoup4
+### 📄 License
 
-## License
+[GPL-3.0](LICENSE) © [fan-world-me](https://github.com/fan-world-me)
 
-GPL-3.0 — see [LICENSE](LICENSE)
+---
+
+Made with 🩵 in Ukraine 🇺🇦
+
+[![Telegram](https://img.shields.io/badge/Telegram-@fan__world__me-2CA5E0?style=flat-square&logo=telegram)](https://t.me/fan_world_me)   [![Discord](https://img.shields.io/badge/Discord-fan__world__me-5865F2?style=flat-square&logo=discord)](https://discord.com/users/fan_world_me)   [![Portfolio](https://img.shields.io/badge/Portfolio-fan--world--me.github.io-00e5ff?style=flat-square&logo=githubpages&logoColor=white)](https://fan-world-me.github.io/)
