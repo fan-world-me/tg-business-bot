@@ -38,7 +38,6 @@ NVIDIA_API_BASE_URL: str = os.getenv(
     "NVIDIA_API_BASE_URL",
     "https://integrate.api.nvidia.com/v1/chat/completions",
 )
-# gemini-3.5-flash is a deprecated alias (auto-routes to 3.6); gemini-3.8-flash is the current Flash.
 GEMINI_VIDEO_MODEL: str = os.getenv("GEMINI_VIDEO_MODEL", "gemini-3.8-flash")
 GEMINI_VIDEO_MODEL_FALLBACK: str = os.getenv("GEMINI_VIDEO_MODEL_FALLBACK", "gemini-3.5-flash-lite")
 
@@ -49,7 +48,6 @@ def _model_list(env_name: str, default: str) -> list[str]:
     return [m.strip() for m in raw.split(",") if m.strip()]
 
 
-# Model IDs checked against provider docs on 2026-10-20.
 # Text chat: tried in order, first provider+model that succeeds wins.
 # Groq: qwen3.8-27b primary → gpt-oss-120b (larger reasoning) → gpt-oss-20b (fast fallback).
 GROQ_TEXT_MODELS: list[str] = _model_list(
@@ -63,24 +61,24 @@ NVIDIA_TEXT_MODELS: list[str] = _model_list(
 )
 
 # Vision (photo/sticker): image_url format.
-# Groq: qwen3.8-27b is the only Groq vision model (gpt-oss-* are text-only, they'd return 400).
+# Groq: qwen3.8-27b supports vision (up to 20 MB). gpt-oss-20b is text-only — removed from vision chain.
 GROQ_VISION_MODELS: list[str] = _model_list(
     "GROQ_VISION_MODELS",
     "qwen/qwen3.8-27b",
 )
-# NVIDIA: nemotron-omni (omni, video+image) → cosmos3-nano-reasoner (image+video).
-# nemotron-nano-12b-v2-vl was retired (HTTP 410, EOL 2026-08-26).
+# NVIDIA: nemotron-omni (omni, video+image) → nemotron-nano-12b-v2-vl (image VLM).
+# cosmos3-nano-reasoner requires a separate NGC entitlement and fails with standard API keys — removed.
 NVIDIA_VISION_MODELS: list[str] = _model_list(
     "NVIDIA_VISION_MODELS",
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning,nvidia/cosmos3-nano-reasoner",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning,nvidia/nemotron-nano-12b-v2-vl",
 )
 
 # Video/GIF/video-note analysis (NVIDIA only, video_url format).
 # Only omni/video-capable models — vision-only models return 400 on video_url input.
-# nemotron-omni primary → cosmos3-nano-reasoner backup.
+# cosmos3-nano-reasoner requires a separate NGC entitlement — removed.
 NVIDIA_VIDEO_MODELS: list[str] = _model_list(
     "NVIDIA_VIDEO_MODELS",
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning,nvidia/cosmos3-nano-reasoner",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
 )
 NVIDIA_VIDEO_MODEL: str = NVIDIA_VIDEO_MODELS[0]  # kept for backward compatibility
 

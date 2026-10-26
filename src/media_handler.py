@@ -114,6 +114,7 @@ def _unlink(*paths: str) -> None:
 
 
 async def _vision(image_path: str, prompt: str) -> str:
+    """Groq vision → NVIDIA vision fallback chain."""
     try:
         return _compact_summary(await groq_vision(image_path, prompt))
     except Exception as exc:
@@ -158,6 +159,31 @@ async def _nvidia_video(video_path: str, prompt: str, use_audio: bool = True) ->
     raise last_exc or RuntimeError("No NVIDIA video models available")
 
 
+async def _whisper_with_fallback(audio_path: str) -> str:
+    """Groq Whisper primary → NVIDIA omni audio fallback."""
+    try:
+        return await groq_whisper(audio_path)
+    except Exception as exc:
+        logger.warning("Groq Whisper failed (%s), trying NVIDIA omni audio", exc)
+        ext = audio_path.rsplit(".", 1)[-1].lower()
+        mime = {
+            "mp3": "audio/mpeg", "m4a": "audio/mp4", "ogg": "audio/ogg",
+            "oga": "audio/ogg", "wav": "audio/wav", "flac": "audio/flac",
+        }.get(ext, "audio/mpeg")
+        with open(audio_path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode()
+        messages = [{"role": "user", "content": [
+            {"type": "text", "text": "Transcribe this audio accurately. Return only the transcribed text, no commentary."},
+            {"type": "audio_url", "audio_url": {"url": f"data:{mime};base64,{b64}"}},
+        ]}]
+        # nemotron-3-nano-omni supports audio input
+        from config import NVIDIA_VISION_MODELS
+        omni_models = [m for m in NVIDIA_VISION_MODELS if "omni" in m.lower()]
+        if not omni_models:
+            raise exc
+        return _compact_summary(await nvidia_multimodal(messages, models=omni_models))
+
+
 async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
     m = message
 
@@ -200,7 +226,11 @@ async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
                 return await _nvidia_video(path, "Describe this GIF/animation in 1 short sentence. Do not provide reasoning.", use_audio=False)
         except Exception as exc:
             logger.error("GIF analysis failed: %s", exc)
-            return "[GIF/animation]"
+            # Fallback: treat as image (use first frame via vision)
+            try:
+                return await _vision(path, "Describe this GIF/animation in 1 short sentence. Do not provide reasoning.")
+            except Exception:
+                return "[GIF/animation]"
         finally:
             _unlink(path)
 
@@ -220,7 +250,7 @@ async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
             path = f.name
         try:
             await bot.download(m.audio.file_id, destination=path)
-            return await groq_whisper(path)
+            return await _whisper_with_fallback(path)
         except Exception as exc:
             logger.error("Audio analysis failed: %s", exc)
             return None
@@ -234,7 +264,7 @@ async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
             path = f.name
         try:
             await bot.download(m.voice.file_id, destination=path)
-            return await groq_whisper(path)
+            return await _whisper_with_fallback(path)
         except Exception as exc:
             logger.error("Whisper failed: %s", exc)
             return None
@@ -256,7 +286,11 @@ async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
                 )
         except Exception as exc:
             logger.error("Video note analysis failed: %s", exc)
-            return "[video note]"
+            # Fallback: treat as image via vision
+            try:
+                return await _vision(video, "Describe this video note in 1-2 short sentences. Do not provide reasoning.")
+            except Exception:
+                return "[video note]"
         finally:
             _unlink(video)
 
@@ -282,7 +316,11 @@ async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
                 )
         except Exception as exc:
             logger.error("Video analysis failed: %s", exc)
-            return "[video]"
+            # Fallback: treat as image via vision
+            try:
+                return await _vision(video, "Describe this video in 1-2 short sentences. Do not provide reasoning.")
+            except Exception:
+                return "[video]"
         finally:
             _unlink(video)
 
@@ -336,7 +374,7 @@ async def _analyze_impl(message: Message, bot: Bot) -> Optional[str]:
             path = f.name
         try:
             await bot.download(m.document.file_id, destination=path)
-            return await groq_whisper(path)
+            return await _whisper_with_fallback(path)
         except Exception as exc:
             logger.error("Audio document analysis failed: %s", exc)
             return None

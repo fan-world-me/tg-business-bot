@@ -93,41 +93,31 @@ def _nvidia_headers() -> dict:
 
 
 def _no_think(model: str) -> dict:
-    """Disable / suppress reasoning tokens for Groq models (per Groq reasoning docs).
+    """Disable / suppress reasoning tokens for Groq models.
 
-    - qwen/*           → reasoning_effort=none (fully disables thinking).
-    - openai/gpt-oss-* → reasoning can't be turned off (only low/medium/high), so use the
-      lowest effort and include_reasoning=false to keep it out of the response.
-    Do NOT pass these params to NVIDIA endpoints — different API (see _nvidia_extra).
+    - qwen/*        → reasoning_effort=none  (fully disables thinking, per Groq docs)
+    - openai/gpt-oss-* → reasoning_effort is not supported with "none"; omit it so
+      the model uses its default (reasoning goes to the separate `reasoning` field,
+      not into `content`, so _THINK_RE already strips any leakage).
+    Note: gpt-oss-* are text-only on Groq — do not use them in vision chains.
+    Do NOT pass these params to NVIDIA endpoints — different API (see _nvidia_chat_one).
     """
     m = model.lower()
     if "qwen" in m:
         return {"reasoning_effort": "none"}
-    if "gpt-oss" in m:
-        return {"reasoning_effort": "low", "include_reasoning": False}
     return {}
 
 
 def _nvidia_extra(model: str) -> dict:
     """Extra body params for NVIDIA chat completions.
 
-    The Nemotron 3.x family (ultra, lightning, nano-omni) reasons by default;
-    chat_template_kwargs.enable_thinking=false turns it off for plain answers.
-    """
-    if "nemotron" in model.lower():
-        return {"chat_template_kwargs": {"enable_thinking": False}}
-    return {}
-
-
-def _gemini_thinking(model: str) -> dict:
-    """Smallest thinking level each Gemini 3.x model accepts (per Gemini thinking docs).
-
-    Flash-Lite and 3.6 Flash support "minimal"; 3.8 Flash rejects it (error), so use "low".
+    nemotron-3-ultra and nemotron-3.5-lightning support enable_thinking via
+    chat_template_kwargs. Disable it to get plain answers without <think> blocks.
     """
     m = model.lower()
-    if "lite" in m or "3.6" in m or "3.5" in m:
-        return {"thinkingLevel": "minimal"}
-    return {"thinkingLevel": "low"}
+    if "nemotron" in m and ("ultra" in m or "lightning" in m):
+        return {"chat_template_kwargs": {"enable_thinking": False}}
+    return {}
 
 
 async def _groq_chat_one(messages: list[dict], model: str) -> str:
@@ -172,7 +162,6 @@ async def nvidia_multimodal(
 
     async def _call(m: str) -> str:
         body: dict[str, Any] = {"model": m, "messages": messages, "max_tokens": MAX_TOKENS, "temperature": 0.2}
-        body.update(_nvidia_extra(m))  # thinking off for Nemotron omni
         if extra_body:
             body.update(extra_body)
         return await _post(NVIDIA_API_BASE_URL, _nvidia_headers(), body)
@@ -223,18 +212,17 @@ async def gemini_youtube_video(url: str, prompt: str, model: str = GEMINI_VIDEO_
     if GEMINI_VIDEO_MODEL_FALLBACK and GEMINI_VIDEO_MODEL_FALLBACK != model:
         models_to_try.append(GEMINI_VIDEO_MODEL_FALLBACK)
 
+    body = {
+        "contents": [{
+            "parts": [
+                {"text": prompt},
+                {"fileData": {"fileUri": url, "mimeType": "video/mp4"}},
+            ]
+        }]
+    }
+
     last_exc: Exception | None = None
     for m in models_to_try:
-        # Thinking isn't needed for a short video summary; use the lowest level this model allows.
-        body = {
-            "contents": [{
-                "parts": [
-                    {"text": prompt},
-                    {"fileData": {"fileUri": url, "mimeType": "video/mp4"}},
-                ]
-            }],
-            "generationConfig": {"thinkingConfig": _gemini_thinking(m)},
-        }
         try:
             async with httpx.AsyncClient(timeout=120) as client:
                 resp = await client.post(
@@ -250,7 +238,7 @@ async def gemini_youtube_video(url: str, prompt: str, model: str = GEMINI_VIDEO_
             candidates = payload.get("candidates", [])
             if candidates:
                 parts = candidates[0].get("content", {}).get("parts", [])
-                texts = [p.get("text", "") for p in parts if "text" in p and not p.get("thought")]
+                texts = [p.get("text", "") for p in parts if "text" in p]
                 result = " ".join(texts).strip()
                 if result:
                     logger.info("Gemini youtube: %s succeeded", m)
