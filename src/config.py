@@ -38,6 +38,7 @@ NVIDIA_API_BASE_URL: str = os.getenv(
     "NVIDIA_API_BASE_URL",
     "https://integrate.api.nvidia.com/v1/chat/completions",
 )
+# verified 2026-11-06 (ai.google.dev/gemini-api/docs/deprecations — no shutdown announced for either model)
 GEMINI_VIDEO_MODEL: str = os.getenv("GEMINI_VIDEO_MODEL", "gemini-3.8-flash")
 GEMINI_VIDEO_MODEL_FALLBACK: str = os.getenv("GEMINI_VIDEO_MODEL_FALLBACK", "gemini-3.5-flash-lite")
 
@@ -49,6 +50,7 @@ def _model_list(env_name: str, default: str) -> list[str]:
 
 
 # Text chat: tried in order, first provider+model that succeeds wins.
+# verified 2026-11-06 (console.groq.com/docs/models; NVIDIA NGC catalog / docs.nvidia.com)
 # Groq: qwen3.8-27b primary → gpt-oss-120b (larger reasoning) → gpt-oss-20b (fast fallback).
 GROQ_TEXT_MODELS: list[str] = _model_list(
     "GROQ_TEXT_MODELS",

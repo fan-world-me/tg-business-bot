@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 
 DEFAULT_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 DEFAULT_VIDEO_MODEL = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
-DEFAULT_TEXT_MODEL = "meta/llama-3.1-70b-instruct"
+DEFAULT_TEXT_MODEL = "meta/llama-3.1-70b-instruct"  # UNVERIFIED as of 2026-11-06 — needs confirmation
 DEFAULT_SAMPLE_VIDEO = "https://assets.ngc.nvidia.com/products/api-catalog/active-speaker-detection/video_1.mp4"
 
 
